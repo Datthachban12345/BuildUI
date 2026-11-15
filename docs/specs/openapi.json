@@ -1,0 +1,260 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "A2UI Website Generation Agent API",
+    "description": "\n# BuildUI — Agent Harness & A2UI Protocol API\n\nThis API serves as the **Host Agent Harness** for generating, mutating, and streaming interactive websites and dashboard surfaces using the **A2UI v1.0** protocol.\n\n### Core Capabilities:\n- **Progressive SSE Streaming**: Real-time assembly of website sections (Nav, Hero, Data Table, Cards).\n- **Data-to-UI Reactivity**: Dynamic schema inference and local client data binding.\n- **Surface Action Dispatch**: Bidirectional communication between client canvas and agent harness.\n    ",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Health Check",
+        "description": "Returns the health status, agent service name, and supported A2UI protocol version.",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/action": {
+      "post": {
+        "tags": [
+          "Agent Harness"
+        ],
+        "summary": "Surface Action Dispatcher",
+        "description": "Receives client action events triggered from interactive components on the canvas.",
+        "operationId": "handle_surface_action_api_agent_action_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceActionMessage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/stream-ui": {
+      "post": {
+        "tags": [
+          "Agent Harness"
+        ],
+        "summary": "Stream A2UI Messages (SSE)",
+        "description": "Streams delta A2UI v1.0 messages (createSurface, updateComponents, updateDataModel) via Server-Sent Events.",
+        "operationId": "stream_ui_generation_api_agent_stream_ui_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateWebsiteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenerateWebsiteRequest": {
+        "properties": {
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "raw_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Data"
+          },
+          "catalog_id": {
+            "type": "string",
+            "title": "Catalog Id",
+            "default": "astryx-web-v1"
+          }
+        },
+        "type": "object",
+        "title": "GenerateWebsiteRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "SurfaceActionMessage": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Version",
+            "default": "1.0"
+          },
+          "type": {
+            "type": "string",
+            "const": "surfaceAction",
+            "title": "Type",
+            "default": "surfaceAction"
+          },
+          "surfaceId": {
+            "type": "string",
+            "title": "Surfaceid"
+          },
+          "componentId": {
+            "type": "string",
+            "title": "Componentid"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "surfaceId",
+          "componentId",
+          "action"
+        ],
+        "title": "SurfaceActionMessage"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "System",
+      "description": "Health verification and system status endpoints."
+    },
+    {
+      "name": "Agent Harness",
+      "description": "Orchestrates A2UI v1.0 generation, progressive streaming, and action events."
+    }
+  ]
+}

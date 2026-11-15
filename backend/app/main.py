@@ -1,15 +1,39 @@
 import json
 import asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from .core.config import settings
 from .models.a2ui import GenerateWebsiteRequest, SurfaceActionMessage
 
+tags_metadata = [
+    {
+        "name": "System",
+        "description": "Health verification and system status endpoints.",
+    },
+    {
+        "name": "Agent Harness",
+        "description": "Orchestrates A2UI v1.0 generation, progressive streaming, and action events.",
+    },
+]
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Agent Harness Core for A2UI-first AI Website Generation"
+    description="""
+# BuildUI — Agent Harness & A2UI Protocol API
+
+This API serves as the **Host Agent Harness** for generating, mutating, and streaming interactive websites and dashboard surfaces using the **A2UI v1.0** protocol.
+
+### Core Capabilities:
+- **Progressive SSE Streaming**: Real-time assembly of website sections (Nav, Hero, Data Table, Cards).
+- **Data-to-UI Reactivity**: Dynamic schema inference and local client data binding.
+- **Surface Action Dispatch**: Bidirectional communication between client canvas and agent harness.
+    """,
+    openapi_tags=tags_metadata,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 app.add_middleware(
@@ -20,7 +44,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/api/health")
+@app.get(
+    "/api/health",
+    tags=["System"],
+    summary="Health Check",
+    description="Returns the health status, agent service name, and supported A2UI protocol version."
+)
 async def health_check():
     return {
         "status": "healthy",
@@ -29,7 +58,13 @@ async def health_check():
         "protocol": "A2UI v1.0"
     }
 
-@app.post("/api/agent/action")
+@app.post(
+    "/api/agent/action",
+    tags=["Agent Harness"],
+    summary="Surface Action Dispatcher",
+    description="Receives client action events triggered from interactive components on the canvas.",
+    status_code=status.HTTP_200_OK
+)
 async def handle_surface_action(action: SurfaceActionMessage):
     """Handles client-to-agent action messages"""
     return {
@@ -39,7 +74,13 @@ async def handle_surface_action(action: SurfaceActionMessage):
         "action": action.action
     }
 
-@app.post("/api/agent/stream-ui")
+@app.post(
+    "/api/agent/stream-ui",
+    tags=["Agent Harness"],
+    summary="Stream A2UI Messages (SSE)",
+    description="Streams delta A2UI v1.0 messages (createSurface, updateComponents, updateDataModel) via Server-Sent Events.",
+    response_class=StreamingResponse
+)
 async def stream_ui_generation(req: GenerateWebsiteRequest):
     """
     Streams A2UI v1.0 protocol messages to client over SSE (Server-Sent Events)
