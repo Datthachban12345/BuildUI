@@ -1,0 +1,13 @@
+{
+  "name": "@buildui/a2ui-protocol",
+  "version": "1.0.0",
+  "description": "A2UI Protocol Types and Schemas",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["a2ui", "agent", "ui", "protocol"],
+  "author": "",
+  "license": "MIT"
+}
