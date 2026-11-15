@@ -1,0 +1,19 @@
+{
+  "name": "buildui-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Website Generation Agent - Monorepo Root",
+  "scripts": {
+    "dev": "concurrently -k -n \"API,WEB\" -c \"blue.bold,green.bold\" \"python -m uvicorn backend.app.main:app --reload --port 8000\" \"pnpm --prefix frontend dev\"",
+    "dev:py": "python dev.py",
+    "dev:backend": "python -m uvicorn backend.app.main:app --reload --port 8000",
+    "dev:frontend": "pnpm --prefix frontend dev",
+    "build": "pnpm --prefix frontend build",
+    "test:backend": "python -m backend.tests.run_tests",
+    "test:frontend": "pnpm --prefix frontend build",
+    "test": "pnpm run test:backend && pnpm run test:frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.5"
+  }
+}
