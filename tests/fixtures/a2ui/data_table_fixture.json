@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+  "createSurface": {
+    "surfaceId": "page-analytics",
+    "catalogId": "astryx-web-v1",
+    "title": "Interactive Data Explorer",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container",
+        "props": { "maxWidth": "xl", "className": "p-8 space-y-8" },
+        "children": ["header-row", "metrics-grid", "table-card"]
+      },
+      {
+        "id": "header-row",
+        "component": "Row",
+        "props": { "justify": "between", "align": "center" },
+        "children": ["header-title", "header-action"]
+      },
+      {
+        "id": "header-title",
+        "component": "Heading",
+        "props": { "level": 2, "text": "Project Overview & Performance", "className": "text-2xl font-semibold text-white" }
+      },
+      {
+        "id": "header-action",
+        "component": "Button",
+        "props": { "label": "Export Report", "variant": "outline", "size": "sm" }
+      },
+      {
+        "id": "metrics-grid",
+        "component": "Grid",
+        "props": { "cols": 3, "gap": "md" },
+        "children": ["metric-1", "metric-2", "metric-3"]
+      },
+      {
+        "id": "metric-1",
+        "component": "MetricsCard",
+        "props": { "label": "Total Active Projects", "value": "24", "change": "+12%", "trend": "up" }
+      },
+      {
+        "id": "metric-2",
+        "component": "MetricsCard",
+        "props": { "label": "Total Revenue", "value": "$142,500", "change": "+8.4%", "trend": "up" }
+      },
+      {
+        "id": "metric-3",
+        "component": "MetricsCard",
+        "props": { "label": "Pending Reviews", "value": "5", "change": "-2", "trend": "down" }
+      },
+      {
+        "id": "table-card",
+        "component": "Card",
+        "props": {
+          "title": "Client Deliverables",
+          "description": "Interactive data table bound to local reactive dataModel.",
+          "className": "bg-zinc-900/60 border-zinc-800"
+        },
+        "children": ["data-table"]
+      },
+      {
+        "id": "data-table",
+        "component": "DataTable",
+        "props": {
+          "dataPath": "projects",
+          "searchable": true,
+          "pageSize": 5,
+          "columns": [
+            { "key": "code", "title": "Code", "sortable": true },
+            { "key": "client", "title": "Client", "sortable": true },
+            { "key": "type", "title": "Type", "sortable": true },
+            { "key": "status", "title": "Status", "type": "badge" },
+            { "key": "budget", "title": "Budget ($)", "sortable": true }
+          ]
+        }
+      }
+    ],
+    "dataModel": {
+      "projects": [
+        { "code": "PRJ-101", "client": "Vogue Editorial", "type": "Fashion Shoot", "status": "Active", "budget": 4500 },
+        { "code": "PRJ-102", "client": "Architectural Digest", "type": "Interior Space", "status": "Active", "budget": 6200 },
+        { "code": "PRJ-103", "client": "Nordic Brand", "type": "Lookbook", "status": "Review", "budget": 3800 },
+        { "code": "PRJ-104", "client": "SaaS Platform", "type": "Headshots", "status": "Completed", "budget": 1500 },
+        { "code": "PRJ-105", "client": "Kinfolk Gallery", "type": "Exhibition", "status": "Pending", "budget": 8000 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "version": "1.0",
+  "createSurface": {
+    "surfaceId": "page-studio",
+    "catalogId": "astryx-web-v1",
+    "title": "Minimalist Photography Studio",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container",
+        "props": { "maxWidth": "xl", "padding": "none" },
+        "children": ["navbar", "hero-section", "services-section", "pricing-section", "contact-section", "footer"]
+      },
+      {
+        "id": "navbar",
+        "component": "Row",
+        "props": { "justify": "between", "align": "center", "className": "px-8 py-5 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur" },
+        "children": ["nav-brand", "nav-links"]
+      },
+      {
+        "id": "nav-brand",
+        "component": "Heading",
+        "props": { "level": 3, "text": "LUMEN STUDIO", "className": "text-lg tracking-widest font-light text-zinc-100" }
+      },
+      {
+        "id": "nav-links",
+        "component": "Row",
+        "props": { "gap": "md" },
+        "children": ["btn-services", "btn-contact"]
+      },
+      {
+        "id": "btn-services",
+        "component": "Button",
+        "props": { "label": "Services", "variant": "ghost", "size": "sm" }
+      },
+      {
+        "id": "btn-contact",
+        "component": "Button",
+        "props": { "label": "Book a Session", "variant": "primary", "size": "sm" }
+      },
+      {
+        "id": "hero-section",
+        "component": "Container",
+        "props": { "className": "px-8 py-24 text-center max-w-4xl mx-auto space-y-6" },
+        "children": ["hero-pill", "hero-title", "hero-subtitle", "hero-actions"]
+      },
+      {
+        "id": "hero-pill",
+        "component": "Badge",
+        "props": { "label": "Editorial & Portrait Photography", "variant": "neutral" }
+      },
+      {
+        "id": "hero-title",
+        "component": "Heading",
+        "props": {
+          "level": 1,
+          "text": "Capturing stillness in the midst of motion",
+          "className": "text-5xl font-light tracking-tight text-white leading-tight"
+        }
+      },
+      {
+        "id": "hero-subtitle",
+        "component": "Text",
+        "props": {
+          "text": "Specializing in high-end fashion, architecture, and intimate human portraits with natural ambient light.",
+          "className": "text-lg text-zinc-400 font-normal max-w-2xl mx-auto"
+        }
+      },
+      {
+        "id": "hero-actions",
+        "component": "Row",
+        "props": { "justify": "center", "gap": "md", "className": "pt-4" },
+        "children": ["cta-primary", "cta-secondary"]
+      },
+      {
+        "id": "cta-primary",
+        "component": "Button",
+        "props": { "label": "View Portfolio", "variant": "primary", "size": "md" }
+      },
+      {
+        "id": "cta-secondary",
+        "component": "Button",
+        "props": { "label": "Check Pricing", "variant": "outline", "size": "md" }
+      },
+      {
+        "id": "services-section",
+        "component": "Container",
+        "props": { "className": "px-8 py-20 max-w-6xl mx-auto" },
+        "children": ["services-header", "services-grid"]
+      },
+      {
+        "id": "services-header",
+        "component": "Heading",
+        "props": { "level": 2, "text": "Featured Offerings", "className": "text-2xl font-light text-zinc-200 mb-10 text-center tracking-wide" }
+      },
+      {
+        "id": "services-grid",
+        "component": "Grid",
+        "props": { "cols": 3, "gap": "lg" },
+        "children": ["service-card-1", "service-card-2", "service-card-3"]
+      },
+      {
+        "id": "service-card-1",
+        "component": "Card",
+        "props": {
+          "title": "Editorial Portraits",
+          "description": "Studio or location portraits designed for magazine covers, press releases, and personal branding.",
+          "className": "bg-zinc-900/60 border-zinc-800"
+        }
+      },
+      {
+        "id": "service-card-2",
+        "component": "Card",
+        "props": {
+          "title": "Architectural Spaces",
+          "description": "Clean compositional documentation of modern residential and commercial interior spaces.",
+          "className": "bg-zinc-900/60 border-zinc-800"
+        }
+      },
+      {
+        "id": "service-card-3",
+        "component": "Card",
+        "props": {
+          "title": "Fine Art Prints",
+          "description": "Limited-edition archival prints curated on museum-grade cotton rag paper.",
+          "className": "bg-zinc-900/60 border-zinc-800"
+        }
+      },
+      {
+        "id": "pricing-section",
+        "component": "Container",
+        "props": { "className": "px-8 py-20 border-t border-zinc-900 max-w-5xl mx-auto text-center" },
+        "children": ["pricing-header", "pricing-grid"]
+      },
+      {
+        "id": "pricing-header",
+        "component": "Heading",
+        "props": { "level": 2, "text": "Session Rates", "className": "text-3xl font-light text-white mb-10" }
+      },
+      {
+        "id": "pricing-grid",
+        "component": "Grid",
+        "props": { "cols": 2, "gap": "lg" },
+        "children": ["price-card-standard", "price-card-editorial"]
+      },
+      {
+        "id": "price-card-standard",
+        "component": "Card",
+        "props": {
+          "title": "Standard Studio Session",
+          "description": "$450 · 2 hours studio session · 15 edited high-res images · 2 wardrobe changes",
+          "className": "bg-zinc-900/40 border-zinc-800 text-left p-8"
+        }
+      },
+      {
+        "id": "price-card-editorial",
+        "component": "Card",
+        "props": {
+          "title": "Full Day Commercial Production",
+          "description": "$1,800 · Full-day on-location or studio · Full licensing rights · Creative direction included",
+          "className": "bg-zinc-900 border-zinc-700 text-left p-8"
+        }
+      },
+      {
+        "id": "contact-section",
+        "component": "Container",
+        "props": { "className": "px-8 py-20 max-w-xl mx-auto text-center space-y-6" },
+        "children": ["contact-title", "contact-email-input", "contact-btn"]
+      },
+      {
+        "id": "contact-title",
+        "component": "Heading",
+        "props": { "level": 2, "text": "Reserve Your Session", "className": "text-2xl font-light text-white" }
+      },
+      {
+        "id": "contact-email-input",
+        "component": "Input",
+        "props": { "placeholder": "Enter your email address...", "type": "email" }
+      },
+      {
+        "id": "contact-btn",
+        "component": "Button",
+        "props": { "label": "Send Booking Inquiry", "variant": "primary", "size": "md" }
+      },
+      {
+        "id": "footer",
+        "component": "Container",
+        "props": { "className": "px-8 py-10 border-t border-zinc-900 text-center text-xs text-zinc-500" },
+        "children": ["footer-text"]
+      },
+      {
+        "id": "footer-text",
+        "component": "Text",
+        "props": { "text": "© 2026 Lumen Studio. All rights reserved. Generated with A2UI v1.0.", "className": "text-zinc-600" }
+      }
+    ],
+    "dataModel": {
+      "bookingEmail": "",
+      "selectedPackage": "Standard"
+    }
+  }
+}

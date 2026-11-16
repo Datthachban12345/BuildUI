@@ -1,0 +1,349 @@
+AI WEBSITEGENERATION AGENT
+Tài liệu công nghệ, nguyên lý hoạt động và hướng dẫn triển khai
+Định hướng kiến trúc: A2UI-first  |  Frontend-focused  |  Interactive live preview
+Mục tiêu: xây dựng một Agent có thể nhận yêu cầu bằng ngôn ngữ tự nhiên, tạo website dưới dạng giao diện tương tác hiển thị trực tiếp trong ứng dụng, sau đó cho phép người dùng chỉnh sửa bằng hội thoại hoặc thao tác trực quan.
+Phiên bản tài liệu: 1.0  •  Ngày: 15/11/2026
+1. Tổng quan sản phẩm
+AI Website Generation Agent là ứng dụng tạo và chỉnh sửa website bằng AI. Người dùng mô tả website mong muốn; hệ thống phân tích yêu cầu, lập cấu trúc trang, sinh mô hình giao diện theo A2UI, kiểm tra dữ liệu rồi gửi đến frontend renderer. Renderer chuyển mô hình đó thành các component React thật để người dùng có thể click, nhập liệu, chuyển tab và tương tác ngay trong bản preview.
+Điểm quan trọng: sản phẩm không chỉ sinh ảnh mockup hoặc đoạn code để người dùng tải về chạy thủ công. Preview là một website được render bên trong ứng dụng, dựa trên component được hệ thống cho phép.
+1.1. Mục tiêu cốt lõi
+Sinh website nhiều section từ prompt: landing page, portfolio, product page hoặc trang giới thiệu dịch vụ.
+Render trực tiếp thành UI tương tác, không phải ảnh tĩnh.
+Cho phép chỉnh sửa bằng prompt: ví dụ “đổi hero sang nền tối”, “thêm bảng giá”, “đổi CTA thành Đăng ký ngay”.
+Cho phép chọn component trên preview và chỉnh thuộc tính trong Property Inspector.
+Chỉ cập nhật phần giao diện bị ảnh hưởng thay vì tạo lại toàn bộ website.
+Lưu project để người dùng quay lại tiếp tục chỉnh sửa.
+1.2. Phạm vi không nên làm ngay
+Không xây trình thiết kế đồ họa tự do như Figma.
+Không cho AI sinh và thực thi JavaScript tùy ý trong trình duyệt.
+Không cần multi-agent framework phức tạp ở phiên bản đầu; một orchestration flow rõ ràng là đủ.
+Không cần vector database/RAG nếu chưa có nguồn tri thức riêng cần truy xuất.
+Không cần hỗ trợ mọi loại website, mọi framework và mọi component ngay từ MVP.
+2. Công nghệ và vai trò
+Thành phần
+Công nghệ đề xuất
+Vai trò / lý do
+Frontend
+React + TypeScript
+Xây dựng workspace, chat, preview canvas, component selection và property inspector.
+UI Renderer
+A2UI v1.0 Runtime + Astryx Adapter
+Đọc message A2UI, quản lý surface/data model và ánh xạ component sang UI implementation.
+Backend API
+Python + FastAPI
+Nhận prompt, quản lý project, điều phối agent, validate output và cung cấp API/stream.
+Protocol
+A2UI v1.0
+Chuẩn JSON để Agent mô tả cấu trúc UI và dữ liệu cho renderer; tách UI structure khỏi data.
+LLM
+Model provider qua Model Adapter
+Phân tích prompt, lập kế hoạch UI, tạo/cập nhật A2UI; có thể thay provider mà không đổi core.
+Database
+PostgreSQL
+Lưu user, project, page, phiên bản UI, component tree và lịch sử chỉnh sửa cần thiết.
+Cache
+Redis (sau khi có nhu cầu)
+Cache catalog/validation, rate limit hoặc lưu trạng thái tác vụ ngắn hạn; không phải nguồn dữ liệu chính.
+Streaming
+SSE trước; WebSocket nếu cần hai chiều liên tục
+Đẩy từng A2UI message về frontend để preview cập nhật dần.
+Testing
+Pytest, Vitest/React Testing Library, Playwright
+Kiểm thử backend, runtime/adapter và luồng người dùng end-to-end.
+Observability
+Structured logging; OpenTelemetry/Langfuse khi cần
+Theo dõi latency, token, lỗi, tool calls và chất lượng sinh UI.
+Lưu ý về Astryx: tài liệu kế hoạch hiện có xác định Astryx là catalog/component target cần adapter, nhưng chưa cung cấp package name, phiên bản hoặc API chính thức. Vì vậy, không nên khẳng định tên component, props hay cách import cụ thể trước khi kiểm tra repository/tài liệu Astryx mà dự án thực sự sử dụng. Trong kiến trúc, Astryx được đặt sau một adapter để có thể thay đổi implementation mà không làm thay đổi A2UI protocol.
+2.1. A2UI là gì và vì sao chọn A2UI-first?
+A2UI (Agent-to-UI) là giao thức JSON để Agent gửi mô tả giao diện đến một renderer. Nó không phải framework frontend và cũng không tự tạo website hoàn chỉnh. A2UI định nghĩa cách biểu diễn surface, component, data model và tương tác; ứng dụng vẫn phải có renderer và catalog component tương ứng.
+A2UI-first nghĩa là hệ thống dùng A2UI làm hợp đồng giao tiếp trung tâm giữa Agent và giao diện. LLM không được trả về HTML/JS để trình duyệt chạy trực tiếp. Thay vào đó, LLM tạo dữ liệu theo schema A2UI; backend kiểm tra; frontend runtime đọc và render bằng component đã đăng ký.
+Tách biệt cấu trúc giao diện và dữ liệu hiển thị.
+Có thể stream nhiều message và cập nhật giao diện từng phần.
+Có thể cập nhật data model mà không phải gửi lại toàn bộ component tree.
+Renderer kiểm soát component nào được phép xuất hiện và action nào được phép thực hiện.
+3. Kiến trúc tổng thể
+User  |  vReact Workspace  |-- Prompt Chat  |-- Live Preview / A2UI Renderer  |-- Component Selection + Property Inspector  |  | HTTPS / SSE  vFastAPI Backend  |  +--> Agent Harness  |      |-- Model Adapter  |      |-- Intent / Task Router  |      |-- Context Builder  |      |-- UI Planner  |      |-- A2UI Generator  |      |-- Output Validator  |  +--> Project Service ------> PostgreSQL  |  +--> Catalog Service ------> Astryx Catalog Adapter  |  +--> Optional Cache --------> Redis  |  vA2UI Message Stream  |  vA2UI Runtime -> Catalog/Component Registry -> Astryx UI Components  |  vInteractive Website Preview
+Luồng chính: prompt đi từ React đến FastAPI; Harness quyết định tác vụ và gọi model; model tạo A2UI; backend validate; message được stream về runtime; runtime cập nhật surface; component registry chọn component implementation; React render website.
+3.1. Phân chia trách nhiệm
+Module
+Chịu trách nhiệm
+Không nên làm
+React Workspace
+Trải nghiệm người dùng, gửi prompt, hiển thị preview và thao tác chỉnh sửa.
+Tự diễn giải prompt hoặc tự tin tưởng output chưa validate từ model.
+A2UI Runtime
+Parse message, quản lý surface/component/data model, điều phối render.
+Gọi LLM hoặc truy cập database trực tiếp.
+Astryx Adapter
+Ánh xạ component A2UI sang component thực tế, validate props/event theo catalog.
+Tự ý mở rộng protocol A2UI bằng component type không chuẩn.
+Agent Harness
+Điều phối model, context, planner, tool và validator.
+Render UI hoặc chứa logic giao diện React.
+Project Service
+Lưu/đọc project, page và version.
+Dùng Redis làm nguồn dữ liệu chuẩn.
+Security Layer
+Xác thực, phân quyền, kiểm tra action và giới hạn tài nguyên.
+Cho phép model tự quyết định quyền truy cập.
+4. A2UI v1.0 hoạt động như thế nào?
+4.1. Các khái niệm quan trọng
+Khái niệm
+Ý nghĩa
+Surface
+Một vùng giao diện độc lập, ví dụ canvas preview của một page.
+Component
+Một node UI có ID, loại component, properties và quan hệ với component khác.
+Data Model
+Dữ liệu mà component đọc/ghi thông qua binding path.
+Catalog
+Danh sách component và function mà renderer biết và cho phép sử dụng.
+Action
+Sự kiện người dùng gửi về Agent/backend để xử lý tiếp.
+Message
+Một JSON envelope biểu diễn thao tác tạo, cập nhật hoặc xóa UI.
+4.2. Các message cần triển khai
+Message
+Chức năng
+Khi sử dụng
+createSurface
+Tạo surface mới, có thể khởi tạo components và dataModel.
+Bắt đầu tạo một page/preview mới.
+updateComponents
+Thêm hoặc thay thế định nghĩa component theo ID.
+Thêm section, đổi layout hoặc chỉnh component.
+updateDataModel
+Cập nhật dữ liệu tại một JSON Pointer path.
+Đổi text, hình ảnh, giá, nội dung mà không đổi cấu trúc UI.
+deleteSurface
+Xóa surface.
+Đóng hoặc thay thế preview.
+callRendererFunction / agentFunctionResponse
+Cơ chế gọi function giữa agent và renderer theo schema v1.0.
+Chỉ triển khai khi một use case thực tế yêu cầu.
+Trong A2UI v1.0, message có version và một message key. Cần dùng đúng schema v1.0 đang chốt cho dự án; không trộn tên trường hoặc message của v0.9/v0.9.1. `updateComponents` dùng danh sách component phẳng liên kết bằng ID, không phải một cây JSON lồng nhau tùy ý.
+4.3. Ví dụ minh họa rút gọn
+{  "version": "1.0",  "createSurface": {    "surfaceId": "page-home",    "components": [      {"id": "root", "component": "Column", "children": ["hero-title", "hero-cta"]},      {"id": "hero-title", "component": "Text", "text": {"literalString": "Welcome"}},      {"id": "hero-cta", "component": "Button", "child": "cta-label"},      {"id": "cta-label", "component": "Text", "text": {"literalString": "Get started"}}    ],    "dataModel": {}  }}
+Đây là ví dụ minh họa cấu trúc, không phải cam kết rằng `Column`, `Text`, `Button` hoặc các property cụ thể đã được Astryx hỗ trợ. Tên component và schema phải được đối chiếu catalog A2UI cùng API Astryx thực tế.
+4.4. Data binding và tương tác
+Component có thể bind tới một path trong data model. Ví dụ TextField đọc/ghi `/form/email`. Khi người dùng gõ, renderer cập nhật state cục bộ. Thao tác nhập liệu không nhất thiết tự gửi request lên backend; khi người dùng nhấn Submit, action mới gửi dữ liệu cần thiết về Agent. Điều này giúp giảm request và tránh gửi mọi thay đổi nhỏ qua mạng.
+Khi backend cần đổi nội dung nhưng không đổi layout, nó có thể gửi `updateDataModel` vào path liên quan. Khi cần đổi cấu trúc, gửi `updateComponents` với component ID bị ảnh hưởng.
+5. Agent Harness: bộ điều phối AI
+Harness là lớp điều khiển quy trình. Không nên để một prompt dài yêu cầu LLM tự làm tất cả. Harness xác định loại yêu cầu, chuẩn bị đúng context, gọi model theo nhiệm vụ, validate kết quả và quyết định message nào được gửi xuống renderer.
+Bước
+Module
+Đầu vào
+Đầu ra
+1
+Request / Intent Router
+Prompt + project state
+Loại tác vụ: generate, edit, explain hoặc action.
+2
+Context Builder
+Project metadata, page state, catalog summary, yêu cầu mới
+Context tối thiểu cho model.
+3
+Planner
+Prompt + context
+Kế hoạch UI có phạm vi rõ: page/section/component cần tạo hoặc sửa.
+4
+Tool Registry/Executor
+Kế hoạch và tool request
+Kết quả từ tool được cấp quyền, nếu có.
+5
+A2UI Generator
+Kế hoạch + catalog + context
+A2UI v1.0 message.
+6
+Validator
+A2UI message + catalog/schema
+Output hợp lệ hoặc lỗi có cấu trúc.
+7
+Persistence + Stream
+Output đã validate
+Lưu version và stream message về frontend.
+5.1. Generate flow
+Người dùng nhập prompt: “Tạo landing page cho một studio chụp ảnh, phong cách tối giản, có bảng giá và form liên hệ”.
+Backend xác định đây là tác vụ generate website.
+Context Builder lấy project settings, page hiện tại (nếu có), catalog component được hỗ trợ và giới hạn token.
+Planner chia yêu cầu thành page structure: Header, Hero, Services, Pricing, Testimonials, Contact, Footer.
+A2UI Generator sinh component definitions và data model theo catalog.
+Validator kiểm tra schema A2UI, ID duy nhất, quan hệ children, component có trong catalog, props đúng kiểu và action được phép.
+Backend lưu project/version và stream message theo thứ tự phù hợp.
+Frontend runtime tạo surface và render từng phần; người dùng nhìn thấy preview và tương tác.
+5.2. Edit flow
+Người dùng yêu cầu chỉnh sửa hoặc chọn một component trên preview.
+Frontend gửi prompt kèm selected component ID, page/surface ID và phiên bản hiện tại.
+Harness chỉ lấy subtree/metadata liên quan thay vì đưa toàn bộ project vào prompt.
+Planner tạo change plan: component nào cần sửa, thêm hoặc xóa.
+Generator trả về các update A2UI nhỏ, giữ nguyên ID của component không đổi.
+Validator kiểm tra tham chiếu và tính nhất quán với trạng thái hiện tại.
+Runtime áp dụng incremental update; backend lưu version mới để hỗ trợ Undo/Redo.
+6. Astryx Catalog Adapter
+Adapter là ranh giới giữa giao thức A2UI và thư viện UI được dùng để render. Mục đích là để A2UI Runtime không phụ thuộc trực tiếp vào API cụ thể của Astryx.
+6.1. Quy trình xây adapter
+Xác định chính xác package/repository Astryx, phiên bản, cách import và tài liệu props.
+Liệt kê component thực sự có: layout, typography, form, actions, media và display.
+Đối chiếu từng component A2UI với component Astryx phù hợp; ghi rõ trường hợp không mapping được.
+Định nghĩa registry: A2UI component type -> React component implementation.
+Định nghĩa props schema và validation: kiểu dữ liệu, required, enum, giới hạn độ dài/kích thước.
+Ánh xạ event/action qua allowlist; không thực thi code hoặc handler do LLM cung cấp.
+Định nghĩa fallback cho component chưa hỗ trợ.
+Viết contract tests cho mapping, props, event và catalog version.
+Không nên đoán API Astryx hoặc tự tạo một catalog “có vẻ hợp lý”. Nếu thư viện không có component tương ứng, chọn fallback hoặc bổ sung một component wrapper do ứng dụng sở hữu, nhưng phải ghi rõ đó là extension của ứng dụng chứ không phải component chuẩn có sẵn của Astryx.
+7. Memory, Database và Cache
+7.1. Lưu gì trong PostgreSQL?
+Nhóm dữ liệu
+Ví dụ trường/dữ liệu
+Mục đích
+User
+id, email, created_at
+Chủ sở hữu project.
+Project
+id, user_id, name, settings, created_at
+Không gian làm việc.
+Page
+id, project_id, name, surface_id
+Các trang của website.
+UI Version
+id, page_id, version, a2ui_document, created_at
+Khôi phục, so sánh và undo/redo.
+Conversation
+id, project_id, summary
+Lưu ngữ cảnh hội thoại ở mức cần thiết.
+Generation Run
+id, project_id, status, model, token_usage, latency
+Theo dõi mỗi lần Agent thực thi.
+7.2. Memory tối thiểu
+Không cần triển khai ngay một hệ thống multi-memory hoặc vector database. Với sản phẩm này, memory hữu ích trước hết là dữ liệu có cấu trúc:
+Project Memory: mục tiêu website, ngành nghề, đối tượng người dùng, brand name và các quyết định đã chốt.
+Design Memory: màu sắc, typography, spacing, style và các preference được người dùng xác nhận.
+Conversation Summary: tóm tắt các quyết định gần đây, không gửi toàn bộ lịch sử chat vào mỗi lần gọi model.
+Current UI State: A2UI document/version hiện tại; đây là trạng thái project, không phải trí nhớ tự do của LLM.
+7.3. Khi nào cần Redis?
+Chỉ thêm Redis khi có use case đo được: cache catalog theo version, cache kết quả validation theo content hash, rate limiting hoặc trạng thái job ngắn hạn. PostgreSQL vẫn là nguồn dữ liệu chuẩn. Tránh cache các dữ liệu project mà không có chiến lược invalidation/version rõ ràng.
+8. Security và độ tin cậy
+Xác thực user ở backend; mọi thao tác đọc/sửa project phải kiểm tra quyền sở hữu.
+Không xem prompt hoặc output của LLM là dữ liệu đáng tin cậy.
+Validate message theo JSON Schema A2UI v1.0 trước khi stream.
+Chỉ cho phép component và props có trong catalog/version đang bật.
+Action/tool phải qua allowlist và authorization ở backend; model không được tự cấp quyền.
+Không render arbitrary HTML/JavaScript từ model. Tránh eval, Function constructor và script injection.
+Giới hạn số component, độ sâu/độ rộng layout, kích thước payload, thời gian model và số lần retry.
+Escape/sanitize nội dung text và kiểm soát URL hình ảnh/link theo policy.
+Ghi log correlation ID, user/project ID (không log secret), model, token, latency và lỗi validation.
+9. Lộ trình triển khai theo thứ tự
+Thứ tự dưới đây bám theo Implementation Plan đã có, nhưng nhóm lại thành các mốc có thể kiểm chứng. Không nên làm tất cả module cùng lúc.
+Phase
+Việc cần làm
+Kết quả cần chứng minh
+0. Foundation
+Tạo repo; setup React/TS, FastAPI; chốt A2UI v1.0; xác minh Astryx API; viết ADR.
+Frontend/backend chạy độc lập; có protocol notes và catalog mapping feasibility.
+1. A2UI Runtime
+Protocol types, parser, surface manager, component state, data model, processor, error handling, tests.
+Render được một surface từ JSON fixture mà không cần AI.
+2. Catalog Adapter
+Catalog definition, registry, mapper, props validator, event mapper, fallback và tests.
+Component A2UI hợp lệ render thành UI component thật; component/props không hợp lệ bị từ chối.
+3. Harness Core
+Model adapter, router, context builder, planner, generator, validator, timeout/retry.
+Prompt có thể tạo A2UI hợp lệ và được runtime render.
+4. Website Generation
+Project/page, prompt template, page planning, layout/content generation, streaming, persistence.
+Tạo website nhiều section; preview tương tác; refresh vẫn khôi phục project.
+5. Editing
+Component selection, property inspector, chat edit, scope detection, incremental update, undo/redo.
+Sửa một phần mà không làm mất các phần không liên quan.
+6. Memory & Cache
+Project/design memory, conversation summary, token budget, cache có version/invalidation.
+Context gọn; đo được token; không phụ thuộc toàn bộ chat history.
+7. Security & Monitoring
+Auth, RBAC, project/tool authorization, injection defense, tracing và error logging.
+Không truy cập chéo project; trace được request đến render.
+8. Evaluation & Release
+Golden cases, unit/integration/E2E, visual regression, security, token/latency benchmark, docs.
+Có số liệu chất lượng và checklist release.
+9.1. Thứ tự code thực tế nên bắt đầu
+Tạo một React page có vùng preview trống và một FastAPI endpoint health check.
+Chọn và cố định bản A2UI v1.0; tạo type definitions và schema validation.
+Tạo một JSON fixture thủ công, không gọi LLM, để kiểm chứng renderer.
+Làm catalog adapter với một nhóm component nhỏ đã xác minh từ Astryx.
+Hoàn thiện render + binding + action cơ bản và test.
+Sau đó mới kết nối LLM để sinh A2UI.
+Khi generate ổn định mới làm project persistence, chat editing và incremental updates.
+Cuối cùng bổ sung memory/cache nâng cao, monitoring và benchmark.
+10. Cấu trúc thư mục gợi ý
+frontend/  src/    app/    workspace/      components/      chat/      preview/      inspector/    a2ui/      protocol/      runtime/      state/      renderer/    catalog/      registry/      adapters/      schemas/    services/backend/  app/    api/    agent/      harness/      planners/      generators/      validators/      model_adapters/    catalog/    projects/    persistence/    security/    observability/    core/tests/  fixtures/    a2ui/  frontend/  backend/  integration/  e2e/docs/  adr/  architecture/  api/
+Đây là cấu trúc định hướng, không phải yêu cầu tạo mọi thư mục ngay ngày đầu. Chỉ tạo module khi có code thực sự thuộc trách nhiệm đó.
+11. Kiểm thử và tiêu chí nghiệm thu
+Lớp kiểm thử
+Ví dụ kiểm thử
+Điều kiện đạt
+Protocol
+Message thiếu version, sai envelope, surface không tồn tại.
+Message lỗi bị reject có thông báo; runtime không crash.
+Runtime
+Tạo surface, update component, update data model, delete surface.
+State và UI khớp với message theo đúng thứ tự.
+Catalog Adapter
+Component không có trong catalog, prop sai type, action không allowlist.
+Không render/thực thi nội dung không được phép.
+Harness
+Prompt generate/edit; model timeout; output sai schema.
+Retry có giới hạn; output luôn qua validator.
+Persistence
+Save, reload, version history, restore.
+Project khôi phục đúng UI state đã lưu.
+E2E
+Prompt -> preview -> click -> edit -> refresh.
+Luồng người dùng chính chạy ổn định.
+Quality/Cost
+Golden prompts, token, latency, tỷ lệ render thành công.
+Có baseline và ngưỡng chấp nhận được ghi lại.
+11.1. Golden test cases ban đầu
+Tạo landing page đơn giản có Header, Hero, Features và Footer.
+Tạo trang có form nhập email và nút Submit; kiểm tra binding và action.
+Yêu cầu đổi tiêu đề Hero; chỉ text liên quan được cập nhật.
+Yêu cầu thêm Pricing section; các section cũ vẫn còn.
+Model trả về component không có trong catalog; validator phải từ chối hoặc fallback.
+Model trả về prop sai kiểu; validator phải từ chối.
+Người dùng refresh browser; project phải khôi phục đúng version đã lưu.
+12. Tối ưu token và tránh over-engineering
+Không gửi toàn bộ conversation history; dùng project summary và các quyết định liên quan.
+Không gửi toàn bộ catalog nếu lớn; cung cấp catalog subset phù hợp với tác vụ.
+Dùng planner để giới hạn phạm vi sửa; edit một section thì chỉ lấy subtree và metadata cần thiết.
+Tách nội dung data model khỏi cấu trúc component; đổi text/ảnh thì ưu tiên updateDataModel khi phù hợp.
+Dùng model adapter để chọn model theo tác vụ; không mặc định mọi bước đều cần model mạnh nhất.
+Giới hạn số vòng planner/generator/repair; không tạo vòng lặp agent vô hạn.
+Cache catalog/version và validation theo hash nếu profiling chứng minh có lợi.
+Đo token input/output, latency theo từng stage và tỷ lệ output hợp lệ trước khi tối ưu phỏng đoán.
+13. Những quyết định phải xác minh trước khi code sâu
+Vấn đề
+Cần xác minh
+Tại sao quan trọng
+Astryx
+Tên package/repo, version, component exports, props, event model, styling.
+Quyết định khả năng mapping và thiết kế adapter.
+A2UI v1.0
+Schema chính thức, catalog được chọn, message/function semantics.
+Tránh trộn version và sinh payload không tương thích.
+Transport
+SSE hay WebSocket; format stream và reconnect.
+Ảnh hưởng cách frontend nhận message và khôi phục stream.
+LLM provider
+Structured output, JSON schema support, latency, token price, rate limits.
+Ảnh hưởng generator và chi phí.
+Deployment
+Môi trường chạy frontend/backend, DB, secrets, logging.
+Ảnh hưởng release và bảo mật.
+Đặc biệt: không nên tuyên bố “đã tích hợp Astryx” chỉ vì adapter compile được. Cần có integration test chứng minh từng component được mapping sang đúng implementation và props thực tế.
+14. Tài liệu tham khảo
+Các nguồn dưới đây được dùng để mô tả A2UI. Trước khi triển khai, cần khóa commit/spec version cụ thể trong ADR để tránh tài liệu thay đổi theo thời gian.
+A2UI Protocol v1.0 specification: https://github.com/a2ui-project/a2ui/blob/main/specification/v1_0/docs/a2ui_protocol.md
+A2UI Messages concepts: https://a2ui.org/concepts/messages/
+A2UI reference messages: https://a2ui.org/reference/messages/
+Astryx: chưa có nguồn chính thức được xác định trong tài liệu đầu vào. Bổ sung URL repository/package hoặc tài liệu Astryx cụ thể trước khi chốt component mapping.
+15. Kết luận
+Thứ tự kỹ thuật quan trọng nhất là: xác minh A2UI và Astryx -> xây renderer chạy bằng fixture -> hoàn thiện catalog adapter -> kết nối Harness/LLM -> làm generation -> làm incremental editing -> bổ sung persistence, memory, security, monitoring và evaluation.
+Không bắt đầu bằng việc làm Agent phức tạp. Nếu A2UI Runtime và Catalog Adapter chưa render ổn định một JSON fixture, việc kết nối LLM chỉ làm khó tìm lỗi hơn. Hãy chứng minh pipeline deterministic trước, sau đó mới thêm tính bất định của mô hình AI.
