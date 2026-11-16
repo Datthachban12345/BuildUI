@@ -48,12 +48,12 @@ export const A2UIRenderer: React.FC<A2UIRendererProps> = ({
         }}
         className={`relative transition-all duration-150 ${
           isSelected
-            ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-zinc-950 rounded-lg'
-            : 'hover:outline hover:outline-1 hover:outline-blue-500/40 rounded-lg'
+            ? 'ring-2 ring-zinc-950 ring-offset-2 ring-offset-white rounded-2xl'
+            : 'hover:outline hover:outline-1 hover:outline-zinc-300 rounded-2xl'
         }`}
       >
         {isSelected && (
-          <div className="absolute -top-3 left-2 px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-[9px] uppercase tracking-wider z-20 pointer-events-none shadow-md">
+          <div className="absolute -top-3 left-3 px-2 py-0.5 rounded-full bg-zinc-900 text-white font-mono text-[9px] uppercase tracking-wider z-20 pointer-events-none shadow-md">
             {node.component} #{node.id}
           </div>
         )}

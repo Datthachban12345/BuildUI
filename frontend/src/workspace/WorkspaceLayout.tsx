@@ -139,7 +139,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   };
 
   return (
-    <div className="flex w-screen h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
+    <div className="flex w-screen h-screen overflow-hidden bg-[#f5f5f7] text-zinc-900 font-sans">
       {/* 1. Left Chat Copilot Panel */}
       <ChatPanel
         messages={messages}
