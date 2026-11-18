@@ -3,12 +3,12 @@
   "createSurface": {
     "surfaceId": "page-analytics",
     "catalogId": "astryx-web-v1",
-    "title": "Interactive Data Explorer",
+    "title": "Interactive Data Explorer (Apple Style)",
     "components": [
       {
         "id": "root",
         "component": "Container",
-        "props": { "maxWidth": "xl", "className": "p-8 space-y-8" },
+        "props": { "maxWidth": "xl", "className": "p-8 space-y-8 bg-white" },
         "children": ["header-row", "metrics-grid", "table-card"]
       },
       {
@@ -20,12 +20,12 @@
       {
         "id": "header-title",
         "component": "Heading",
-        "props": { "level": 2, "text": "Project Overview & Performance", "className": "text-2xl font-semibold text-white" }
+        "props": { "level": 2, "text": "Tổng quan dự án & Hiệu suất", "className": "text-2xl font-semibold tracking-tight text-zinc-950" }
       },
       {
         "id": "header-action",
         "component": "Button",
-        "props": { "label": "Export Report", "variant": "outline", "size": "sm" }
+        "props": { "label": "Xuất báo cáo PDF", "variant": "outline", "size": "sm" }
       },
       {
         "id": "metrics-grid",
@@ -36,25 +36,24 @@
       {
         "id": "metric-1",
         "component": "MetricsCard",
-        "props": { "label": "Total Active Projects", "value": "24", "change": "+12%", "trend": "up" }
+        "props": { "label": "Dự án đang thực hiện", "value": "24", "change": "+12%", "trend": "up" }
       },
       {
         "id": "metric-2",
         "component": "MetricsCard",
-        "props": { "label": "Total Revenue", "value": "$142,500", "change": "+8.4%", "trend": "up" }
+        "props": { "label": "Doanh thu tháng", "value": "$142,500", "change": "+8.4%", "trend": "up" }
       },
       {
         "id": "metric-3",
         "component": "MetricsCard",
-        "props": { "label": "Pending Reviews", "value": "5", "change": "-2", "trend": "down" }
+        "props": { "label": "Đang chờ duyệt", "value": "5", "change": "-2", "trend": "down" }
       },
       {
         "id": "table-card",
         "component": "Card",
         "props": {
-          "title": "Client Deliverables",
-          "description": "Interactive data table bound to local reactive dataModel.",
-          "className": "bg-zinc-900/60 border-zinc-800"
+          "title": "Bàn giao khách hàng",
+          "description": "Bảng tương tác trực tiếp: tìm kiếm, sắp xếp và lọc ngay trên màn hình."
         },
         "children": ["data-table"]
       },
@@ -66,22 +65,22 @@
           "searchable": true,
           "pageSize": 5,
           "columns": [
-            { "key": "code", "title": "Code", "sortable": true },
-            { "key": "client", "title": "Client", "sortable": true },
-            { "key": "type", "title": "Type", "sortable": true },
-            { "key": "status", "title": "Status", "type": "badge" },
-            { "key": "budget", "title": "Budget ($)", "sortable": true }
+            { "key": "code", "title": "Mã DA", "sortable": true },
+            { "key": "client", "title": "Khách hàng", "sortable": true },
+            { "key": "type", "title": "Dịch vụ", "sortable": true },
+            { "key": "status", "title": "Trạng thái", "type": "badge" },
+            { "key": "budget", "title": "Ngân sách ($)", "sortable": true }
           ]
         }
       }
     ],
     "dataModel": {
       "projects": [
-        { "code": "PRJ-101", "client": "Vogue Editorial", "type": "Fashion Shoot", "status": "Active", "budget": 4500 },
-        { "code": "PRJ-102", "client": "Architectural Digest", "type": "Interior Space", "status": "Active", "budget": 6200 },
-        { "code": "PRJ-103", "client": "Nordic Brand", "type": "Lookbook", "status": "Review", "budget": 3800 },
-        { "code": "PRJ-104", "client": "SaaS Platform", "type": "Headshots", "status": "Completed", "budget": 1500 },
-        { "code": "PRJ-105", "client": "Kinfolk Gallery", "type": "Exhibition", "status": "Pending", "budget": 8000 }
+        { "code": "DA-101", "client": "Vogue Editorial", "type": "Chụp bìa tạp chí", "status": "Active", "budget": 4500 },
+        { "code": "DA-102", "client": "Architectural Digest", "type": "Không gian nội thất", "status": "Active", "budget": 6200 },
+        { "code": "DA-103", "client": "Nordic Brand", "type": "Lookbook Thu Đông", "status": "Review", "budget": 3800 },
+        { "code": "DA-104", "client": "TechCorp App", "type": "Chân dung nhân sự", "status": "Completed", "budget": 1500 },
+        { "code": "DA-105", "client": "Kinfolk Gallery", "type": "Triển lãm nghệ thuật", "status": "Pending", "budget": 8000 }
       ]
     }
   }
