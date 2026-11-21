@@ -1,6 +1,6 @@
 import React from 'react';
-import { SurfaceState, ComponentId, A2UIComponentNode } from '../protocol/types';
-import { ASTRYX_REGISTRY, AstryxFallbackComponent } from '../../catalog/adapters/astryxAdapter';
+import { SurfaceState, ComponentId, A2UIComponentNode } from '../protocol/a2ui-types';
+import { ASTRYX_REGISTRY, AstryxFallbackComponent } from '../../catalog/adapters/astryx-adapter-view';
 
 interface A2UIRendererProps {
   surface: SurfaceState;
@@ -10,7 +10,7 @@ interface A2UIRendererProps {
   onUpdateDataModel?: (path: string, value: any) => void;
 }
 
-export const A2UIRenderer: React.FC<A2UIRendererProps> = ({
+export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
   surface,
   selectedId,
   onSelectComponent,

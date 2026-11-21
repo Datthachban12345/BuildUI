@@ -1,30 +1,58 @@
-import React, { useState } from 'react';
-import { SurfaceState, ComponentId, A2UIComponentNode, A2UIMessage } from '../a2ui/protocol/types';
-import { A2UIRuntime } from '../a2ui/runtime/A2UIRuntime';
-import { ChatPanel, ChatMessage } from './chat/ChatPanel';
-import { PreviewCanvas } from './preview/PreviewCanvas';
-import { PropertyInspector } from './inspector/PropertyInspector';
+import { useState, useCallback } from 'react';
+import { SurfaceState, ComponentId, A2UIComponentNode, A2UIMessage } from '../a2ui/protocol/a2ui-types';
+import { A2UIRuntime } from '../a2ui/runtime/a2ui-runtime';
+import { ChatMessage } from './chat/chat-store';
+import type { ConsoleEventPayload, StreamChunk } from '../services/agent-api';
 
-interface WorkspaceLayoutProps {
+export type { ChatMessage } from './chat/chat-store';
+
+export interface WorkspaceStoreProps {
   onSendPromptToBackend: (
     prompt: string,
     currentSurface: SurfaceState | null,
-    onStreamChunk: (chunk: { message?: A2UIMessage; text?: string; steps?: string[] }) => void
+    onStreamChunk: (chunk: StreamChunk) => void
   ) => Promise<void>;
   onLoadFixtureData: (fixtureName: string) => Promise<A2UIMessage | null>;
 }
 
-export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
-  onSendPromptToBackend,
-  onLoadFixtureData,
-}) => {
+function normalizeChunk(chunk: StreamChunk): {
+  text?: string;
+  steps?: string[];
+  message?: A2UIMessage;
+  console?: ConsoleEventPayload;
+} {
+  if ('type' in chunk) {
+    if (chunk.type === 'text' && typeof chunk.payload === 'string') return { text: chunk.payload };
+    if (chunk.type === 'steps' && Array.isArray(chunk.payload)) return { steps: chunk.payload };
+    if (chunk.type === 'a2ui') return { message: chunk.payload as A2UIMessage };
+    if (chunk.type === 'console' && isConsoleEventPayload(chunk.payload)) return { console: chunk.payload };
+    return {};
+  }
+  const legacy = chunk as { text?: string; steps?: string[]; message?: A2UIMessage };
+  return {
+    text: legacy.text,
+    steps: legacy.steps,
+    message: legacy.message,
+  };
+}
+
+function isConsoleEventPayload(value: unknown): value is ConsoleEventPayload {
+  if (!value || typeof value !== 'object') return false;
+  const payload = value as Partial<ConsoleEventPayload>;
+  return (
+    typeof payload.message === 'string' &&
+    ['info', 'success', 'warning', 'error'].includes(payload.level || '')
+  );
+}
+
+export function useWorkspaceStore({ onSendPromptToBackend, onLoadFixtureData }: WorkspaceStoreProps) {
   const [surface, setSurface] = useState<SurfaceState | null>(null);
   const [selectedId, setSelectedId] = useState<ComponentId | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
-  // 1. Handle user prompt sent via Chat
-  const handleSendMessage = async (prompt: string) => {
+  // 1. Send Prompt to Agent
+  const handleSendMessage = useCallback(async (prompt: string) => {
     const userMsgId = Date.now().toString();
     const userMsg: ChatMessage = {
       id: userMsgId,
@@ -50,7 +78,8 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
       await onSendPromptToBackend(
         prompt,
         surface,
-        (chunk) => {
+        (rawChunk) => {
+          const chunk = normalizeChunk(rawChunk);
           if (chunk.text) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -65,18 +94,28 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               )
             );
           }
+          if (chunk.console) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === agentMsgId
+                  ? { ...m, console: [...(m.console || []), chunk.console!] }
+                  : m
+              )
+            );
+          }
           if (chunk.message) {
             setSurface((current) => A2UIRuntime.processMessage(chunk.message!, current));
           }
         }
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === agentMsgId
             ? {
                 ...m,
-                content: m.content || `Đã xảy ra lỗi khi kết nối Agent: ${err.message}`,
+                content: `${m.content ? `${m.content}\n\n` : ''}Lỗi kết nối Agent: ${errorMessage}`,
                 isStreaming: false,
               }
             : m
@@ -88,10 +127,10 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
         prev.map((m) => (m.id === agentMsgId ? { ...m, isStreaming: false } : m))
       );
     }
-  };
+  }, [onSendPromptToBackend, surface]);
 
-  // 2. Direct property edit from PropertyInspector (Incremental Update)
-  const handleUpdateComponent = (updatedComp: A2UIComponentNode) => {
+  // 2. Direct property edit from Inspector
+  const handleUpdateComponent = useCallback((updatedComp: A2UIComponentNode) => {
     if (!surface) return;
     const msg: A2UIMessage = {
       version: '1.0',
@@ -101,10 +140,10 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
       },
     };
     setSurface((current) => A2UIRuntime.processMessage(msg, current));
-  };
+  }, [surface]);
 
-  // 3. Update data model from inputs
-  const handleUpdateDataModel = (path: string, value: any) => {
+  // 3. Update reactive data model
+  const handleUpdateDataModel = useCallback((path: string, value: any) => {
     if (!surface) return;
     const msg: A2UIMessage = {
       version: '1.0',
@@ -116,10 +155,10 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
       },
     };
     setSurface((current) => A2UIRuntime.processMessage(msg, current));
-  };
+  }, [surface]);
 
-  // 4. Load fixture test for deterministic validation
-  const handleLoadFixture = async (fixtureName: string) => {
+  // 4. Load fixture test
+  const handleLoadFixture = useCallback(async (fixtureName: string) => {
     const fixture = await onLoadFixtureData(fixtureName);
     if (fixture) {
       const nextSurface = A2UIRuntime.processMessage(fixture, null);
@@ -136,36 +175,17 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
         },
       ]);
     }
+  }, [onLoadFixtureData]);
+
+  return {
+    surface,
+    selectedId,
+    setSelectedId,
+    messages,
+    isGenerating,
+    handleSendMessage,
+    handleUpdateComponent,
+    handleUpdateDataModel,
+    handleLoadFixture,
   };
-
-  return (
-    <div className="flex w-screen h-screen overflow-hidden bg-[#f5f5f7] text-zinc-900 font-sans">
-      {/* 1. Left Chat Copilot Panel */}
-      <ChatPanel
-        messages={messages}
-        onSendMessage={handleSendMessage}
-        isGenerating={isGenerating}
-        onLoadFixture={handleLoadFixture}
-      />
-
-      {/* 2. Center Live Canvas Artboard */}
-      <PreviewCanvas
-        surface={surface}
-        selectedId={selectedId}
-        onSelectComponent={setSelectedId}
-        onUpdateDataModel={handleUpdateDataModel}
-        isGenerating={isGenerating}
-      />
-
-      {/* 3. Right Property Inspector Drawer */}
-      {selectedId && (
-        <PropertyInspector
-          surface={surface}
-          selectedId={selectedId}
-          onClose={() => setSelectedId(null)}
-          onUpdateComponent={handleUpdateComponent}
-        />
-      )}
-    </div>
-  );
-};
+}

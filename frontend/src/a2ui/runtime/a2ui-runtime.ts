@@ -3,7 +3,7 @@ import {
   SurfaceState,
   A2UIComponentNode,
   ComponentId
-} from '../protocol/types';
+} from '../protocol/a2ui-types';
 
 /**
  * A2UI v1.0 Pure Message Processor

@@ -1,0 +1,1 @@
+- [Always stop smoke servers](always-stop-smoke-servers.md) — tắt ngay mọi server/task nền sau khi kiểm thử, không để chạy ngầm

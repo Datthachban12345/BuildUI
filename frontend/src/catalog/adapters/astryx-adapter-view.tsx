@@ -1,5 +1,5 @@
 import React from 'react';
-import { A2UIComponentNode } from '../../a2ui/protocol/types';
+import { A2UIComponentNode } from '../../a2ui/protocol/a2ui-types';
 
 interface AstryxComponentProps {
   node: A2UIComponentNode;

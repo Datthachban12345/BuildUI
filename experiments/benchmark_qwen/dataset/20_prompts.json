@@ -1,0 +1,102 @@
+[
+  {
+    "id": "P01",
+    "category": "Creative Studio",
+    "prompt": "Tạo landing page cho studio chụp ảnh chân dung & thời trang cao cấp tại Hà Nội, phong cách tối giản thanh lịch, có bảng giá gói chụp và form đặt lịch."
+  },
+  {
+    "id": "P02",
+    "category": "SaaS Platform",
+    "prompt": "Tạo website giới thiệu nền tảng AI Code Review cho lập trình viên, có số liệu thống kê hiệu suất (Metrics), so sánh tính năng và bảng giá 3 gói dịch vụ."
+  },
+  {
+    "id": "P03",
+    "category": "Analytics Dashboard",
+    "prompt": "Tạo trang dashboard phân tích doanh thu thương mại điện tử với 3 thẻ KPI lớn, bảng danh sách 5 đơn hàng gần nhất có bộ lọc tìm kiếm và trạng thái."
+  },
+  {
+    "id": "P04",
+    "category": "Architecture & Interior",
+    "prompt": "Tạo landing page cho công ty thiết kế nội thất Bắc Âu (Scandinavian), làm nổi bật các dự án biệt thự đã hoàn thiện và triết lý ánh sáng tự nhiên."
+  },
+  {
+    "id": "P05",
+    "category": "F&B / Hospitality",
+    "prompt": "Tạo website cho quán Specialty Coffee thủ công, giới thiệu các vùng nguyên liệu hạt Arabica, quy trình rang xay và form đặt bàn trải nghiệm cupping."
+  },
+  {
+    "id": "P06",
+    "category": "Fintech / Wealth",
+    "prompt": "Tạo landing page ứng dụng quản lý tài chính cá nhân tự động hóa danh mục đầu tư, có biểu đồ thống kê lợi nhuận kỳ vọng và cam kết bảo mật."
+  },
+  {
+    "id": "P07",
+    "category": "Healthcare / Clinic",
+    "prompt": "Tạo trang web cho phòng khám nha khoa thẩm mỹ quốc tế, có danh sách bác sĩ chuyên khoa, bảng giá niềng răng trong suốt và form tư vấn 1-1."
+  },
+  {
+    "id": "P08",
+    "category": "Education / EdTech",
+    "prompt": "Tạo landing page khóa học trực tuyến Master UI/UX Design, có lộ trình 8 tuần, danh sách mentor đầu ngành và đánh giá học viên đã có việc làm."
+  },
+  {
+    "id": "P09",
+    "category": "Luxury Product",
+    "prompt": "Tạo trang giới thiệu sản phẩm đồng hồ cơ học chế tác giới hạn, phong cách sang trọng với typography tinh tế, thông số kỹ thuật và nút đặt cọc trước."
+  },
+  {
+    "id": "P10",
+    "category": "Real Estate",
+    "prompt": "Tạo landing page dự án căn hộ xanh ven sông sinh thái, bảng thông số tiện ích nội khu, mặt bằng tầng điển hình và form đăng ký xem nhà mẫu."
+  },
+  {
+    "id": "P11",
+    "category": "B2B Logistics",
+    "prompt": "Tạo website dịch vụ vận tải chuỗi cung ứng toàn cầu, bảng theo dõi hành trình đơn hàng tương tác, mạng lưới kho bãi và form báo giá tự động."
+  },
+  {
+    "id": "P12",
+    "category": "Legal / Law Firm",
+    "prompt": "Tạo trang web hãng luật doanh nghiệp chuyên về sáp nhập M&A và sở hữu trí tuệ, phong cách uy tín đĩnh đạc, danh sách luật sư cộng sự."
+  },
+  {
+    "id": "P13",
+    "category": "Fitness / Wellness",
+    "prompt": "Tạo landing page phòng tập Yoga & Pilates cao cấp, lịch các lớp học trong tuần, hồ sơ huấn luyện viên quốc tế và gói thẻ hội viên VIP."
+  },
+  {
+    "id": "P14",
+    "category": "Automotive / EV",
+    "prompt": "Tạo trang web giới thiệu dòng xe máy điện thông minh thế hệ mới, làm nổi bật quãng đường pin 200km, tính năng sạc nhanh và mạng lưới trạm sạc."
+  },
+  {
+    "id": "P15",
+    "category": "HR Tech",
+    "prompt": "Tạo website nền tảng tuyển dụng nhân sự cấp cao bằng AI, bảng dữ liệu ứng viên hàng đầu với trạng thái hồ sơ, và bảng chi phí doanh nghiệp."
+  },
+  {
+    "id": "P16",
+    "category": "Beauty / Organic Cosmetics",
+    "prompt": "Tạo landing page thương hiệu mỹ phẩm thuần chay hữu cơ, làm nổi bật chứng nhận quốc tế, các dòng serum thảo mộc và câu chuyện nhà sáng lập."
+  },
+  {
+    "id": "P17",
+    "category": "Cybersecurity",
+    "prompt": "Tạo trang giới thiệu giải pháp phòng chống tấn công DDoS và bảo mật đám mây, thẻ số liệu 99.99% uptime, chứng chỉ tuân thủ SOC2 và bản dùng thử."
+  },
+  {
+    "id": "P18",
+    "category": "Travel / Eco Resort",
+    "prompt": "Tạo website khu nghỉ dưỡng sinh thái trên đồi mây Sapa, giới thiệu các căn villa gỗ mộc, trải nghiệm ẩm thực bản địa và lịch đặt phòng trực tuyến."
+  },
+  {
+    "id": "P19",
+    "category": "Non-Profit / NGO",
+    "prompt": "Tạo landing page chiến dịch quỹ trồng rừng bảo tồn đầu nguồn, số liệu minh bạch cây đã trồng qua DataTable, và cổng quyên góp ủng hộ."
+  },
+  {
+    "id": "P20",
+    "category": "Event / Tech Summit",
+    "prompt": "Tạo landing page sự kiện AI Summit 2026, lịch trình 3 ngày hội thảo, danh sách diễn giả quốc tế và 3 hạng vé Early Bird có số lượng giới hạn."
+  }
+]

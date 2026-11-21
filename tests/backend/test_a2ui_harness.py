@@ -55,15 +55,21 @@ def test_a2ui_validator_reject_duplicate_ids():
     assert "Duplicate component id" in err
 
 def test_ui_planner():
+    # Phase 3 intent scheme: generate_new / edit_section / change_theme / chat_inquiry
     intent1 = UIPlanner.classify_intent("Tạo một website bán trà sữa", has_existing_surface=False)
-    assert intent1 == "generate"
+    assert intent1 == "generate_new"
 
     intent2 = UIPlanner.classify_intent("Đổi màu tiêu đề sang tím", has_existing_surface=True)
-    assert intent2 == "edit"
+    assert intent2 == "change_theme"
+
+    intent3 = UIPlanner.classify_intent("Sửa tiêu đề hero cho sang trọng hơn", has_existing_surface=True)
+    assert intent3 == "edit_section"
+
+    intent4 = UIPlanner.classify_intent("Website này trông thế nào?", has_existing_surface=True)
+    assert intent4 == "chat_inquiry"
 
     steps = UIPlanner.create_generation_plan("Tạo portfolio chụp ảnh tối giản")
-    assert len(steps) >= 5
-    assert any("Hero" in s for s in steps)
+    assert len(steps) >= 7
 
 def test_deterministic_generator_validity():
     landing_msg = A2UIGenerator.generate_deterministic("Tạo landing page cho studio ảnh")

@@ -9,8 +9,14 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
 from .agent.harness.orchestrator import AgentOrchestrator
+from .agent.model_adapters.registry import configured_provider
 
-# Load environment variables
+# Load environment variables.
+# main.py lives at backend/app/main.py, so backend/.env is two levels up.
+# Using an absolute path means the key works regardless of which directory
+# the dev launcher (pnpm dev / python dev.py) starts uvicorn from.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# Also pick up a .env from the current working directory if one exists there.
 load_dotenv()
 
 app = FastAPI(
@@ -34,11 +40,14 @@ class ChatRequest(BaseModel):
 
 @app.get("/api/health")
 async def health_check():
+    provider = configured_provider()
     return {
         "status": "healthy",
         "service": "buildui-agent-harness",
         "protocol": "A2UI v1.0",
-        "llm_configured": bool(os.getenv("OPENAI_API_KEY"))
+        "llm_provider": provider,
+        "llm_configured": provider != "deterministic",
+        "fallback": "deterministic" if provider == "deterministic" else "on-error"
     }
 
 @app.post("/api/agent/chat")

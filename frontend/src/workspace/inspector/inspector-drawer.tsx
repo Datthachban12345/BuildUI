@@ -1,35 +1,28 @@
 import React from 'react';
-import { SurfaceState, ComponentId, A2UIComponentNode } from '../../a2ui/protocol/types';
+import { SurfaceState, ComponentId, A2UIComponentNode } from '../../a2ui/protocol/a2ui-types';
 import { X, Sliders, Type, Palette } from 'lucide-react';
+import { useInspectorStore } from './inspector-store';
 
-interface PropertyInspectorProps {
+export interface InspectorDrawerProps {
   surface: SurfaceState | null;
   selectedId: ComponentId | null;
   onClose: () => void;
   onUpdateComponent: (component: A2UIComponentNode) => void;
 }
 
-export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
+export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   surface,
   selectedId,
   onClose,
   onUpdateComponent,
 }) => {
-  if (!surface || !selectedId) return null;
-  const node = surface.components[selectedId];
-  if (!node) return null;
+  const { node, props, handlePropChange } = useInspectorStore({
+    surface,
+    selectedId,
+    onUpdateComponent,
+  });
 
-  const props = node.props || {};
-
-  const handlePropChange = (key: string, value: any) => {
-    onUpdateComponent({
-      ...node,
-      props: {
-        ...props,
-        [key]: value,
-      },
-    });
-  };
+  if (!surface || !selectedId || !node) return null;
 
   return (
     <aside className="w-80 h-full bg-white border-l border-zinc-200/80 flex flex-col shrink-0 select-none z-20 shadow-[0_0_24px_rgba(0,0,0,0.04)]">
