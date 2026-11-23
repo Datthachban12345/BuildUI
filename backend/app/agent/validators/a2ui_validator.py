@@ -14,6 +14,7 @@ ASTRYX_ALLOWED_COMPONENTS = {
     "Input",
     "DataTable",
     "MetricsCard",
+    "Image",
 }
 
 MAX_COMPONENTS_PER_SURFACE = 200

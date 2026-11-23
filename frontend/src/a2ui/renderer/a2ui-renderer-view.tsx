@@ -8,7 +8,14 @@ interface A2UIRendererProps {
   onSelectComponent: (id: ComponentId | null) => void;
   onAction?: (actionName: string, payload?: any) => void;
   onUpdateDataModel?: (path: string, value: any) => void;
+  /** While true, section containers awaiting their Live Assembly block shimmer. */
+  isGenerating?: boolean;
 }
+
+/** Apple-style shimmer bar used by pending Live Assembly sections. */
+const ShimmerBar: React.FC<{ width: string }> = ({ width }) => (
+  <div className={`h-3 rounded-full bg-zinc-100 animate-pulse ${width}`} />
+);
 
 export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
   surface,
@@ -16,6 +23,7 @@ export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
   onSelectComponent,
   onAction,
   onUpdateDataModel,
+  isGenerating = false,
 }) => {
   const renderNode = (nodeId: ComponentId): React.ReactNode => {
     const node: A2UIComponentNode | undefined = surface.components[nodeId];
@@ -25,19 +33,45 @@ export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
     const isSelected = selectedId === node.id;
 
     const childElements = node.children?.map(childId => renderNode(childId));
+    // Live Assembly: while the agent is streaming, a section container that
+    // has not received its children block yet renders a shimmer placeholder.
+    const isPendingSection =
+      isGenerating &&
+      node.component === 'Container' &&
+      (node.children === undefined || node.children.length === 0);
 
-    const content = ComponentImpl ? (
-      <ComponentImpl
-        node={node}
-        dataModel={surface.dataModel}
-        onAction={onAction}
-        onUpdateDataModel={onUpdateDataModel}
-      >
-        {childElements}
-      </ComponentImpl>
-    ) : (
-      <AstryxFallbackComponent node={node} />
-    );
+    let content: React.ReactNode;
+    if (!ComponentImpl) {
+      content = <AstryxFallbackComponent node={node} />;
+    } else if (isPendingSection && (childElements?.length ?? 0) === 0) {
+      // Shimmer skeleton while the block for this section is still streaming.
+      content = (
+        <div
+          className="w-full p-8 space-y-4"
+          style={{ minHeight: 120 }}
+          aria-busy="true"
+        >
+          <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+            <span className="w-2 h-2 rounded-full bg-zinc-300 animate-pulse" />
+            Đang lắp ráp khối...
+          </div>
+          <ShimmerBar width="w-1/3" />
+          <ShimmerBar width="w-2/3" />
+          <ShimmerBar width="w-full" />
+        </div>
+      );
+    } else {
+      content = (
+        <ComponentImpl
+          node={node}
+          dataModel={surface.dataModel}
+          onAction={onAction}
+          onUpdateDataModel={onUpdateDataModel}
+        >
+          {childElements}
+        </ComponentImpl>
+      );
+    }
 
     return (
       <div

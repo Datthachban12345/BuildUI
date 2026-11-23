@@ -1,11 +1,19 @@
+import asyncio
 import json
 import logging
+import os
 from typing import AsyncGenerator, Any, Dict, Optional
 
 from ..planners.ui_planner import UIPlanner
 from ..generators.a2ui_generator import A2UIGenerator
+from ..generators.live_assembly import chunk_create_surface, section_label
 from ..model_adapters.registry import get_adapter
 from ..validators.a2ui_validator import A2UIValidator
+
+# Default gap between Live Assembly blocks so the canvas visibly assembles
+# section by section. Read per-block (not at import time) so tests can
+# monkeypatch LIVE_ASSEMBLY_BLOCK_DELAY=0 for speed.
+_DEFAULT_BLOCK_DELAY_SECONDS = 0.35
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +111,28 @@ class AgentOrchestrator:
         if result.a2ui is not None:
             valid, error = A2UIValidator.validate_message(result.a2ui)
             if valid:
-                yield _sse_event("a2ui", result.a2ui)
+                blocks = chunk_create_surface(result.a2ui)
+                if intent == "generate_new" and len(blocks) > 1:
+                    # Swarm Live Assembly: ship the skeleton first so the canvas
+                    # mounts immediately, then stream each section block.
+                    yield _sse_event("console", {
+                        "level": "info",
+                        "message": f"Live Assembly: khởi tạo khung sườn ({len(blocks) - 1} khối section)",
+                    })
+                    yield _sse_event("a2ui", blocks[0])
+                    total = len(blocks) - 1
+                    for index, block in enumerate(blocks[1:], start=1):
+                        delay = float(os.getenv("LIVE_ASSEMBLY_BLOCK_DELAY", str(_DEFAULT_BLOCK_DELAY_SECONDS)))
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        first_id = str(block["updateComponents"]["components"][0]["id"])
+                        yield _sse_event("console", {
+                            "level": "info",
+                            "message": f"Lắp ráp khối {index}/{total}: {section_label(first_id)}",
+                        })
+                        yield _sse_event("a2ui", block)
+                else:
+                    yield _sse_event("a2ui", result.a2ui)
             else:
                 yield _sse_event("text", f"Không thể áp dụng cập nhật an toàn: {error}")
         elif not result.text and intent != "chat_inquiry":

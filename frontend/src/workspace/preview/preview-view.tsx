@@ -83,6 +83,7 @@ export const PreviewView: React.FC<PreviewViewProps> = ({
                 onSelectComponent={onSelectComponent}
                 onAction={onAction}
                 onUpdateDataModel={onUpdateDataModel}
+                isGenerating={isGenerating}
               />
             </div>
           </div>

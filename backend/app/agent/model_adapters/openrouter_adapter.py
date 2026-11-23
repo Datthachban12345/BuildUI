@@ -5,6 +5,8 @@ import httpx
 from typing import Any, Dict, List, Optional
 
 from .base import LLMResult, ModelAdapter
+from ..prompts.apple_designer import AppleDesignerPrompt
+from ..validators.a2ui_validator import ASTRYX_ALLOWED_COMPONENTS
 
 # UI-producing intents must return an A2UI envelope; the free model pool picks
 # an upstream model at random, so we retry with a corrective prompt when it
@@ -12,6 +14,119 @@ from .base import LLMResult, ModelAdapter
 _UI_INTENTS = {"generate_new", "edit_section", "change_theme"}
 _MAX_ATTEMPTS = int(os.getenv("OPENROUTER_MAX_ATTEMPTS", "3"))
 _ACTION_KEYS = ("createSurface", "updateComponents", "updateDataModel")
+
+_COMPONENT_ALIASES = {
+    "div": "Container",
+    "section": "Container",
+    "main": "Container",
+    "header": "Container",
+    "footer": "Container",
+    "nav": "Container",
+    "article": "Container",
+    "aside": "Container",
+    "form": "Container",
+    "h1": "Heading",
+    "h2": "Heading",
+    "h3": "Heading",
+    "h4": "Heading",
+    "h5": "Heading",
+    "h6": "Heading",
+    "title": "Heading",
+    "p": "Text",
+    "span": "Text",
+    "paragraph": "Text",
+    "label": "Text",
+    "img": "Image",
+    "picture": "Image",
+    "photo": "Image",
+    "productcard": "Card",
+    "featurecard": "Card",
+    "pricingcard": "Card",
+    "testimonialcard": "Card",
+    "productgrid": "Grid",
+    "buttongroup": "Row",
+    "cta": "Button",
+    "searchinput": "Input",
+    "textfield": "Input",
+}
+
+
+def _resolve_component_type(component: Any, props: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(component, str):
+        if any(key in props for key in ("src", "image", "imageUrl", "url")):
+            return "Image"
+        if "placeholder" in props:
+            return "Input"
+        if "title" in props or "name" in props:
+            return "Card"
+        if "level" in props and ("text" in props or "content" in props):
+            return "Heading"
+        if "text" in props or "content" in props:
+            return "Text"
+        if "children" in props:
+            return "Container"
+        return None
+    if component in ASTRYX_ALLOWED_COMPONENTS:
+        return component
+
+    normalized = "".join(character for character in component.lower() if character.isalnum())
+    alias = _COMPONENT_ALIASES.get(normalized)
+    if alias:
+        return alias
+
+    for allowed in ASTRYX_ALLOWED_COMPONENTS:
+        if allowed.lower() == normalized:
+            return allowed
+
+    if any(word in normalized for word in ("image", "photo", "picture", "media")):
+        return "Image"
+    if any(word in normalized for word in ("product", "feature", "pricing", "testimonial")):
+        return "Card"
+    if any(word in normalized for word in ("heading", "title", "headline")):
+        return "Heading"
+    if any(word in normalized for word in ("text", "paragraph", "caption", "description")):
+        return "Text"
+    if any(word in normalized for word in ("button", "cta", "link")):
+        return "Button"
+    if any(word in normalized for word in ("grid", "list")):
+        return "Grid"
+    if any(word in normalized for word in ("container", "layout", "section", "wrapper")):
+        return "Container"
+
+    if any(key in props for key in ("src", "image", "imageUrl")):
+        return "Image"
+    if "placeholder" in props:
+        return "Input"
+    if "title" in props or "name" in props:
+        return "Card"
+    if "text" in props or "content" in props:
+        return "Text"
+    return None
+
+
+def _has_visible_content(message: Dict[str, Any]) -> bool:
+    """True when a createSurface has at least one leaf node below root."""
+    surface = message.get("createSurface")
+    if not isinstance(surface, dict) or not isinstance(surface.get("components"), list):
+        return False
+    by_id = {c.get("id"): c for c in surface["components"]
+             if isinstance(c, dict) and isinstance(c.get("id"), str)}
+    leaves = {"Heading", "Text", "Button", "Card", "Badge", "Input", "DataTable", "MetricsCard", "Image"}
+    pending, visited = ["root"], set()
+    while pending:
+        node_id = pending.pop()
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+        node = by_id.get(node_id)
+        if not node:
+            continue
+        if node.get("component") in leaves:
+            return True
+        for child in node.get("children") or []:
+            if isinstance(child, str):
+                pending.append(child)
+    return False
 
 
 def _is_a2ui_envelope(obj: Any) -> bool:
@@ -21,45 +136,168 @@ def _is_a2ui_envelope(obj: Any) -> bool:
     return len(present) == 1
 
 
-def _flatten_nested_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert model-emitted nested component objects to A2UI node references."""
+def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten model-emitted nested components into A2UI node references and
+    drop structurally broken nodes so they cannot poison the validator.
+
+    The free model pool occasionally returns nested component objects instead
+    of id references, nodes missing ``id``/``component``, and dangling child
+    references. This tolerates all of it: keep only well-formed catalog nodes
+    (deduped by id), prune references to removed nodes, and guarantee a
+    ``root`` node plus a string ``surfaceId``.
+    """
     surface = message.get("createSurface")
     if not isinstance(surface, dict) or not isinstance(surface.get("components"), list):
         return message
 
-    flattened: List[Any] = []
+    # Pass 1: DFS-flatten into an ordered node list + the set of valid ids.
+    # Broken nodes are skipped, but we still descend into their children so a
+    # salvageable nested subtree is not lost.
+    nodes: "Dict[str, Any]" = {}
+    order: List[str] = []
+    valid_ids: set[str] = set()
 
-    def visit(component: Any) -> None:
+    def walk(component: Any) -> None:
         if not isinstance(component, dict):
-            flattened.append(component)
             return
-
-        node = dict(component)
-        children = node.get("children")
-        nested_children = []
-        if isinstance(children, list):
-            child_ids = []
-            for child in children:
-                if isinstance(child, dict):
-                    child_ids.append(child.get("id"))
-                    nested_children.append(child)
-                else:
-                    child_ids.append(child)
-            node["children"] = child_ids
-        flattened.append(node)
-        for child in nested_children:
-            visit(child)
+        node_id = component.get("id")
+        raw_props = component.get("props")
+        props = dict(raw_props) if isinstance(raw_props, dict) else {}
+        raw_type = component.get("component") or component.get("type") or component.get("name")
+        node_type = _resolve_component_type(raw_type, props)
+        if node_type is None and node_id == "root":
+            node_type = "Container"
+        raw_children = component.get("children")
+        children = raw_children if isinstance(raw_children, list) else []
+        broken = (
+            not isinstance(node_id, str) or not node_id
+            or node_type is None
+        )
+        if not broken:
+            normalized = {**component, "component": node_type, "props": props}
+            if node_type in ("Heading", "Text"):
+                text = props.get("text") or component.get("text") or component.get("content") or component.get("label")
+                if text is not None:
+                    props["text"] = text
+            elif node_type == "Image":
+                props.setdefault("src", component.get("src") or component.get("imageUrl") or component.get("url") or component.get("image") or "")
+                props.setdefault("alt", component.get("alt") or component.get("title") or "")
+            elif node_type == "Card":
+                props.setdefault("title", component.get("title") or component.get("name") or component.get("label") or component.get("productName"))
+                props.setdefault("description", component.get("description") or component.get("text") or component.get("content") or "")
+            elif node_type == "Button":
+                props.setdefault("label", component.get("label") or component.get("text") or component.get("title") or "Xem thêm")
+            if node_id not in nodes:
+                nodes[node_id] = normalized
+                order.append(node_id)
+            valid_ids.add(node_id)
+        for child in children:
+            walk(child)
 
     for component in surface["components"]:
-        visit(component)
+        walk(component)
 
-    normalized_surface = {**surface, "components": flattened}
-    return {**message, "createSurface": normalized_surface}
+    # Pass 2: emit the flat list, pruning each node's child refs to valid ids.
+    # If an invalid nested node is dropped, promote its valid descendants to
+    # the nearest valid ancestor rather than leaving them disconnected.
+    def resolve_child(child: Any) -> List[str]:
+        if isinstance(child, str):
+            return [child] if child in valid_ids else []
+        if not isinstance(child, dict):
+            return []
+
+        child_id = child.get("id")
+        child_props = child.get("props")
+        child_props = child_props if isinstance(child_props, dict) else {}
+        child_type = _resolve_component_type(
+            child.get("component") or child.get("type") or child.get("name"),
+            child_props,
+        )
+        if (
+            isinstance(child_id, str)
+            and child_id in valid_ids
+            and child_type is not None
+        ):
+            return [child_id]
+
+        nested = child.get("children")
+        if not isinstance(nested, list):
+            return []
+        return [ref for nested_child in nested for ref in resolve_child(nested_child)]
+
+    components: List[Dict[str, Any]] = []
+    for node_id in order:
+        original = nodes[node_id]
+        raw_children = original.get("children")
+        refs: List[str] = []
+        if isinstance(raw_children, list):
+            for child in raw_children:
+                for ref in resolve_child(child):
+                    if ref not in refs and ref != node_id:
+                        refs.append(ref)
+        node = {k: v for k, v in original.items() if k not in ("id", "component", "children")}
+        node["id"] = node_id
+        node["component"] = original.get("component")
+        if refs:
+            node["children"] = refs
+        components.append(node)
+
+    # Guarantee a root node and connect any otherwise orphaned top-level nodes.
+    referenced_ids = {
+        child
+        for component in components
+        for child in component.get("children", [])
+    }
+    top_level_ids = [
+        node_id for node_id in order
+        if node_id != "root" and node_id not in referenced_ids
+    ]
+    if "root" not in nodes:
+        root: Dict[str, Any] = {"id": "root", "component": "Container",
+                                "props": {"maxWidth": "xl", "className": "bg-white"}}
+        if top_level_ids:
+            root["children"] = top_level_ids
+        components.insert(0, root)
+    elif top_level_ids:
+        root_node = next(component for component in components if component["id"] == "root")
+        root_children = root_node.setdefault("children", [])
+        root_node["children"] = list(dict.fromkeys(root_children + top_level_ids))
+
+    surface_id = surface.get("surfaceId")
+    if not isinstance(surface_id, str) or not surface_id:
+        surface_id = "page-main"
+
+    normalized_surface = {
+        "surfaceId": surface_id,
+        "catalogId": surface.get("catalogId") or "astryx-web-v1",
+        "title": surface.get("title") or "Generated Page",
+        "components": components,
+        "dataModel": surface.get("dataModel") or {},
+    }
+    return {**message, "version": message.get("version") or "1.0", "createSurface": normalized_surface}
+
+
+# Backwards-compatible alias.
+def _flatten_nested_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
+    return _normalize_create_surface(message)
 
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "openrouter/free"
-DEFAULT_TIMEOUT_SECONDS = float(os.getenv("OPENROUTER_TIMEOUT", "45"))
+def _configured_timeout() -> Optional[float]:
+    """Read OPENROUTER_TIMEOUT; a blank, `none`, `unlimited` or `0` value means no limit.
+
+    The free model pool can take several minutes to finish a completion, so a
+    short cap (the old 45s default) makes most requests die mid-stream. The
+    default is therefore unlimited; set a number of seconds to re-enable a cap.
+    """
+    raw = os.getenv("OPENROUTER_TIMEOUT", "").strip()
+    if raw.lower() in ("", "none", "unlimited", "0"):
+        return None
+    return float(raw)
+
+
+DEFAULT_TIMEOUT: Optional[float] = _configured_timeout()
 
 
 def _extract_completion_content(payload: Any) -> Optional[str]:
@@ -83,35 +321,7 @@ def _extract_completion_content(payload: Any) -> Optional[str]:
     return None
 
 
-A2UI_SYSTEM_PROMPT = """
-You are the AI Website Generation Agent operating under the A2UI v1.0 protocol with an Apple-style design system.
-You MUST output a single valid JSON object - no prose, no markdown, no code fences.
-
-Design System Principles:
-- Apple clean light style: pure white / zinc-50 backgrounds, subtle zinc-200 borders, crisp zinc-950/zinc-900/zinc-600 typography, rounded-2xl cards, pill-shaped buttons, generous whitespace.
-- Allowed Astryx components and props:
-  - Container { maxWidth: "sm|md|lg|xl|full", className }
-  - Row { justify, align, gap, className }
-  - Grid { cols, gap, className }
-  - Heading { level: 1..4, text, className }
-  - Text { text, className }
-  - Button { label, variant: "primary|secondary|outline|ghost", size: "sm|md|lg" }
-  - Card { title, description, className }
-  - Badge { label, variant }
-  - Input { placeholder, type, dataPath }
-  - MetricsCard { label, value, change, trend: "up|down" }
-  - DataTable { dataPath, searchable, pageSize, columns: [{ key, title, sortable, type }] }
-
-Envelope structure (version is always "1.0"):
-- createSurface:   { "version":"1.0", "createSurface": { "surfaceId","catalogId","title","components":[...],"dataModel":{} } }
-- updateComponents:{ "version":"1.0", "updateComponents": { "surfaceId","components":[{ id, component, props, children? }] } }
-- updateDataModel: { "version":"1.0", "updateDataModel": { "surfaceId","path"?,"value","operation":"set|merge|delete" } }
-
-Rules:
-- Components reference children by id. ids must be unique within the surface.
-- For a NEW website use createSurface. For a targeted edit use updateComponents containing ONLY the changed node(s). For a theme/color/font change use updateDataModel only.
-- catalogId is always "astryx-web-v1".
-"""
+A2UI_SYSTEM_PROMPT = AppleDesignerPrompt.system()
 
 
 def _strip_code_fences(raw: str) -> str:
@@ -138,7 +348,7 @@ class OpenRouterAdapter(ModelAdapter):
         self.api_key = os.getenv("OPENROUTER_API_KEY")
         self.model = os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL)
         self.base_url = os.getenv("OPENROUTER_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-        self.timeout = DEFAULT_TIMEOUT_SECONDS
+        self.timeout = DEFAULT_TIMEOUT
         # No output token cap by default: the request omits max_tokens unless the
         # user pins one via OPENROUTER_MAX_TOKENS (helps on tight paid budgets).
         raw_max_tokens = os.getenv("OPENROUTER_MAX_TOKENS", "").strip()
@@ -206,7 +416,17 @@ class OpenRouterAdapter(ModelAdapter):
 
             if _is_a2ui_envelope(parsed):
                 if "createSurface" in parsed:
-                    parsed = _flatten_nested_create_surface(parsed)
+                    parsed = _normalize_create_surface(parsed)
+                    if not _has_visible_content(parsed):
+                        # The model returned structure but no visible content.
+                        # Ask it to render the actual sections instead of
+                        # hard-coding a template over its work.
+                        last_error = "createSurface has no visible content"
+                        history.append(self._corrective_turn(
+                            "createSurface has no visible content - the surface only has "
+                            "empty layout containers; add real Heading/Text/Button/Card "
+                            "content in each section"))
+                        continue
                 return LLMResult(text=None, a2ui=parsed, provider=self.name)
 
             last_error = "Model output is not a valid A2UI v1.0 envelope"
@@ -226,22 +446,11 @@ class OpenRouterAdapter(ModelAdapter):
 
     def _build_user_prompt(self, intent: str, prompt: str, trimmed_context: Optional[Dict[str, Any]]) -> str:
         if intent == "chat_inquiry":
-            return (
-                "Answer this user question about the website UI concisely in Vietnamese. "
-                "Return JSON: {\"answer\": \"...\"}.\n\n"
-                f"Question: {prompt}"
-            )
+            return AppleDesignerPrompt.inquiry_user_prompt(prompt)
         if intent == "generate_new":
-            return f"Generate a complete Apple-style website for: {prompt}\nReturn a valid createSurface A2UI v1.0 message."
+            return AppleDesignerPrompt.generation_user_prompt(prompt)
         if intent == "change_theme":
-            return (
-                f"Change the theme/colors/typography to match this request: {prompt}. "
-                "Do NOT rebuild the surface. Return ONLY an updateDataModel A2UI v1.0 message that stores the requested theme under dataModel key 'theme'."
-            )
+            return AppleDesignerPrompt.theme_user_prompt(prompt)
         # edit_section
         context_json = json.dumps(trimmed_context or {}, ensure_ascii=False)
-        return (
-            "Edit ONLY the requested part. Return an updateComponents A2UI v1.0 message containing exactly the changed node(s). "
-            f"Current trimmed context (ids + shallow props only): {context_json}\n"
-            f"Edit request: {prompt}"
-        )
+        return AppleDesignerPrompt.edit_user_prompt(prompt, context_json)

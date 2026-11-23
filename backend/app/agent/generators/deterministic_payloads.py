@@ -1,345 +1,301 @@
-"""Legacy deterministic payloads moved out of A2UIGenerator for the adapter boundary."""
-from typing import Any, Dict
+"""Prompt-aware deterministic A2UI payloads used when an LLM is unavailable."""
+import re
+from typing import Any, Dict, List
+
+
+_TECH_PRODUCTS = [
+    "MacBook Pro M4",
+    "Dell XPS 15",
+    "ASUS ROG Zephyrus",
+    "iPhone 17 Pro",
+    "Samsung Galaxy S26",
+    "iPad Pro M5",
+    "Sony WH-1000XM6",
+    "Logitech MX Master 4",
+]
+
+
+def _brand_from_prompt(prompt: str) -> str:
+    match = re.search(
+        r"(?:tên thương hiệu|brand(?: name)?)\s*[:：]\s*([^\n.;]+)",
+        prompt,
+        re.IGNORECASE,
+    )
+    return match.group(1).strip(" -*`") if match else ""
+
+
+def _subject_from_prompt(prompt: str) -> str:
+    match = re.search(
+        r"(?:website|trang web|landing page|portfolio)\s+(?:cho|về|dành cho)\s+([^,\n.!]+)",
+        prompt,
+        re.IGNORECASE,
+    )
+    if not match:
+        match = re.search(r"\b(?:bán|kinh doanh|giới thiệu)\s+([^,\n.!]+)", prompt, re.IGNORECASE)
+    if not match:
+        return "thương hiệu của bạn"
+    subject = re.split(r"\s+(?:phong cách|có|với|bao gồm)\s+", match.group(1), maxsplit=1, flags=re.IGNORECASE)[0]
+    return subject.strip(" -*`")[:60] or "thương hiệu của bạn"
+
+
+def _product_names_from_prompt(prompt: str) -> List[str]:
+    match = re.search(
+        r"(?:tạo ít nhất\s+\d+\s+sản phẩm|dữ liệu mẫu)\s*:?\s*(.*?)(?=\n\s*\*\*\d+[.)]|\Z)",
+        prompt,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        names = [
+            re.sub(r"\s+", " ", line.strip().lstrip("-*• ")).strip()
+            for line in match.group(1).splitlines()
+            if line.strip().startswith(("-", "*", "•"))
+        ]
+        names = [name for name in names if name and len(name) < 100]
+        if names:
+            return names[:12]
+
+    lowered = prompt.lower()
+    mentioned = [name for name in _TECH_PRODUCTS if name.lower() in lowered]
+    return mentioned or _TECH_PRODUCTS
+
+
+def _category_for_product(name: str) -> str:
+    lowered = name.lower()
+    if any(token in lowered for token in ("iphone", "galaxy", "phone")):
+        return "Điện thoại"
+    if any(token in lowered for token in ("ipad", "tablet")):
+        return "Máy tính bảng"
+    if any(token in lowered for token in ("sony", "headphone", "tai nghe")):
+        return "Âm thanh"
+    if any(token in lowered for token in ("logitech", "mouse", "chuột")):
+        return "Phụ kiện"
+    if "rog" in lowered or "gaming" in lowered:
+        return "Laptop gaming"
+    return "Laptop"
+
+
+def _message(title: str, components: List[Dict[str, Any]], data_model: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    return {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "page-main",
+            "catalogId": "astryx-web-v1",
+            "title": title,
+            "components": components,
+            "dataModel": data_model or {},
+        },
+    }
+
+
+def _generate_storefront(prompt: str) -> Dict[str, Any]:
+    brand = _brand_from_prompt(prompt) or "TechNova"
+    names = _product_names_from_prompt(prompt)
+    components: List[Dict[str, Any]] = [
+        {
+            "id": "root",
+            "component": "Container",
+            "props": {"maxWidth": "xl", "className": "technova-store-root"},
+            "children": ["navbar", "hero", "main-content", "footer"],
+        },
+        {
+            "id": "navbar",
+            "component": "Row",
+            "props": {"justify": "between", "align": "center", "gap": "md", "className": "technova-store-header"},
+            "children": ["navbar-brand", "navbar-tagline"],
+        },
+        {
+            "id": "navbar-brand",
+            "component": "Heading",
+            "props": {"level": 3, "text": brand, "className": "technova-brand"},
+        },
+        {
+            "id": "navbar-tagline",
+            "component": "Text",
+            "props": {"text": "Công nghệ chính hãng · Tuyển chọn cho bạn", "className": "technova-section-intro"},
+        },
+        {
+            "id": "hero",
+            "component": "Container",
+            "props": {"maxWidth": "full", "className": "technova-store-hero"},
+            "children": ["hero-kicker", "hero-title", "hero-description"],
+        },
+        {
+            "id": "hero-kicker",
+            "component": "Badge",
+            "props": {"label": "TECHNOLOGY · LIFESTYLE", "className": "technova-hero-kicker"},
+        },
+        {
+            "id": "hero-title",
+            "component": "Heading",
+            "props": {"level": 1, "text": "Nâng tầm trải nghiệm công nghệ", "className": "technova-hero-title"},
+        },
+        {
+            "id": "hero-description",
+            "component": "Text",
+            "props": {"text": f"Khám phá thiết bị được tuyển chọn từ {brand}.", "className": "technova-hero-description"},
+        },
+        {
+            "id": "main-content",
+            "component": "Container",
+            "props": {"maxWidth": "full", "className": "technova-catalog"},
+            "children": ["catalog-title", "catalog-description", "product-grid"],
+        },
+        {
+            "id": "catalog-title",
+            "component": "Heading",
+            "props": {"level": 2, "text": "Thiết bị nổi bật", "className": "technova-section-title"},
+        },
+        {
+            "id": "catalog-description",
+            "component": "Text",
+            "props": {"text": f"{len(names)} sản phẩm công nghệ dành cho bạn.", "className": "technova-section-intro"},
+        },
+        {
+            "id": "product-grid",
+            "component": "Grid",
+            "props": {"cols": 3, "gap": "lg", "className": "technova-product-grid"},
+            "children": [f"product-{index + 1}" for index in range(len(names))],
+        },
+    ]
+
+    products = []
+    for index, name in enumerate(names):
+        category = _category_for_product(name)
+        components.extend([
+            {
+                "id": f"product-{index + 1}",
+                "component": "Card",
+                "props": {
+                    "title": name,
+                    "description": f"{category} · Được tuyển chọn bởi {brand}.",
+                    "className": "technova-product-card",
+                },
+                "children": [f"product-image-{index + 1}", f"product-category-{index + 1}"],
+            },
+            {
+                "id": f"product-image-{index + 1}",
+                "component": "Image",
+                "props": {"alt": name, "ratio": "wide", "className": "technova-product-image"},
+            },
+            {
+                "id": f"product-category-{index + 1}",
+                "component": "Badge",
+                "props": {"label": category, "className": "technova-category-badge"},
+            },
+        ])
+        products.append({"id": index + 1, "name": name, "category": category})
+
+    components.extend([
+        {
+            "id": "footer",
+            "component": "Container",
+            "props": {"maxWidth": "full", "className": "technova-catalog"},
+            "children": ["footer-copy"],
+        },
+        {
+            "id": "footer-copy",
+            "component": "Text",
+            "props": {"text": f"© 2026 {brand} · Thiết bị công nghệ chính hãng."},
+        },
+    ])
+    return _message(f"{brand} - Thiết bị công nghệ", components, {"products": products})
+
+
+def _generate_dashboard() -> Dict[str, Any]:
+    components = [
+        {"id": "root", "component": "Container", "props": {"maxWidth": "xl", "className": "p-8 space-y-8 bg-white"}, "children": ["header-row", "metrics-grid", "table-card"]},
+        {"id": "header-row", "component": "Row", "props": {"justify": "between", "align": "center"}, "children": ["header-title"]},
+        {"id": "header-title", "component": "Heading", "props": {"level": 1, "text": "Tổng quan hoạt động"}},
+        {"id": "metrics-grid", "component": "Grid", "props": {"cols": 3, "gap": "md"}, "children": ["metric-1", "metric-2", "metric-3"]},
+        {"id": "metric-1", "component": "MetricsCard", "props": {"label": "Tổng đơn hàng", "value": "128", "change": "+12%", "trend": "up"}},
+        {"id": "metric-2", "component": "MetricsCard", "props": {"label": "Doanh thu", "value": "₫84.5M", "change": "+8.4%", "trend": "up"}},
+        {"id": "metric-3", "component": "MetricsCard", "props": {"label": "Đang xử lý", "value": "16", "change": "-2", "trend": "down"}},
+        {"id": "table-card", "component": "Card", "props": {"title": "Hoạt động gần đây"}, "children": ["data-table"]},
+        {"id": "data-table", "component": "DataTable", "props": {"dataPath": "records", "searchable": True, "pageSize": 5, "columns": [{"key": "name", "title": "Tên"}, {"key": "status", "title": "Trạng thái", "type": "badge"}]}},
+    ]
+    return _message("Tổng quan hoạt động", components, {
+        "records": [
+            {"name": "Đơn hàng #1024", "status": "Hoàn tất"},
+            {"name": "Đơn hàng #1025", "status": "Đang xử lý"},
+            {"name": "Đơn hàng #1026", "status": "Đang giao"},
+        ],
+    })
+
+
+def _generate_generic_site(prompt: str) -> Dict[str, Any]:
+    brand = _brand_from_prompt(prompt)
+    subject = _subject_from_prompt(prompt)
+    display_name = brand or subject
+    title = f"{display_name} - Website"
+    components = [
+        {"id": "root", "component": "Container", "props": {"maxWidth": "xl", "className": "bg-white"}, "children": ["navbar", "hero", "main-content", "pricing", "footer"]},
+        {"id": "navbar", "component": "Row", "props": {"justify": "between", "align": "center", "className": "px-8 py-5 border-b border-zinc-200"}, "children": ["navbar-brand", "navbar-cta"]},
+        {"id": "navbar-brand", "component": "Heading", "props": {"level": 3, "text": display_name}},
+        {"id": "navbar-cta", "component": "Button", "props": {"label": "Liên hệ", "variant": "outline", "size": "sm"}},
+        {"id": "hero", "component": "Container", "props": {"className": "px-8 py-24 text-center max-w-4xl mx-auto space-y-6"}, "children": ["hero-title", "hero-description", "hero-cta"]},
+        {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": f"Khám phá {subject}"}},
+        {"id": "hero-description", "component": "Text", "props": {"text": f"Trải nghiệm được thiết kế riêng cho {subject}, với chất lượng và sự tận tâm trong từng chi tiết."}},
+        {"id": "hero-cta", "component": "Button", "props": {"label": "Khám phá ngay", "variant": "primary", "size": "lg"}},
+        {"id": "main-content", "component": "Container", "props": {"className": "px-8 py-20 max-w-6xl mx-auto"}, "children": ["main-title", "feature-grid"]},
+        {"id": "main-title", "component": "Heading", "props": {"level": 2, "text": "Điểm nổi bật"}},
+        {"id": "feature-grid", "component": "Grid", "props": {"cols": 3, "gap": "lg"}, "children": ["feature-1", "feature-2", "feature-3"]},
+        {"id": "feature-1", "component": "Card", "props": {"title": f"Dành riêng cho {subject}", "description": "Giải pháp phù hợp với nhu cầu thực tế của bạn."}},
+        {"id": "feature-2", "component": "Card", "props": {"title": "Chất lượng đáng tin cậy", "description": "Chú trọng trải nghiệm nhất quán trong từng chi tiết."}},
+        {"id": "feature-3", "component": "Card", "props": {"title": "Đồng hành lâu dài", "description": "Đội ngũ sẵn sàng hỗ trợ bạn khi cần."}},
+        {"id": "pricing", "component": "Container", "props": {"className": "px-8 py-20 border-t border-zinc-200 max-w-5xl mx-auto text-center"}, "children": ["pricing-title", "pricing-card"]},
+        {"id": "pricing-title", "component": "Heading", "props": {"level": 2, "text": "Giải pháp phù hợp"}},
+        {"id": "pricing-card", "component": "Card", "props": {"title": f"{display_name}", "description": "Liên hệ để được tư vấn lựa chọn phù hợp."}},
+        {"id": "footer", "component": "Container", "props": {"className": "px-8 py-10 border-t border-zinc-200 text-center"}, "children": ["footer-copy"]},
+        {"id": "footer-copy", "component": "Text", "props": {"text": f"© 2026 {display_name}. All rights reserved."}},
+    ]
+    return _message(title, components)
 
 
 def generate_deterministic(prompt: str) -> Dict[str, Any]:
-    """
-    Deterministic generator producing Apple-style clean light UI surfaces.
-    """
-    p_lower = prompt.lower()
-    if "bảng" in p_lower or "thống kê" in p_lower or "dashboard" in p_lower or "analytics" in p_lower:
-        # Generate Apple Style Analytics / Data Explorer Surface
-        return {
-            "version": "1.0",
-            "createSurface": {
-                "surfaceId": "page-analytics",
-                "catalogId": "astryx-web-v1",
-                "title": "Studio Analytics & Deliverables",
-                "components": [
-                    {
-                        "id": "root",
-                        "component": "Container",
-                        "props": { "maxWidth": "xl", "className": "p-8 space-y-8 bg-white" },
-                        "children": ["header-row", "metrics-grid", "table-card"]
-                    },
-                    {
-                        "id": "header-row",
-                        "component": "Row",
-                        "props": { "justify": "between", "align": "center" },
-                        "children": ["header-title", "header-action"]
-                    },
-                    {
-                        "id": "header-title",
-                        "component": "Heading",
-                        "props": { "level": 2, "text": "Tổng quan dự án & Doanh thu", "className": "text-2xl font-semibold tracking-tight text-zinc-950" }
-                    },
-                    {
-                        "id": "header-action",
-                        "component": "Button",
-                        "props": { "label": "Xuất báo cáo", "variant": "outline", "size": "sm" }
-                    },
-                    {
-                        "id": "metrics-grid",
-                        "component": "Grid",
-                        "props": { "cols": 3, "gap": "md" },
-                        "children": ["metric-1", "metric-2", "metric-3"]
-                    },
-                    {
-                        "id": "metric-1",
-                        "component": "MetricsCard",
-                        "props": { "label": "Dự án đang thực hiện", "value": "24", "change": "+12%", "trend": "up" }
-                    },
-                    {
-                        "id": "metric-2",
-                        "component": "MetricsCard",
-                        "props": { "label": "Doanh thu tháng", "value": "$142,500", "change": "+8.4%", "trend": "up" }
-                    },
-                    {
-                        "id": "metric-3",
-                        "component": "MetricsCard",
-                        "props": { "label": "Đang chờ duyệt", "value": "5", "change": "-2", "trend": "down" }
-                    },
-                    {
-                        "id": "table-card",
-                        "component": "Card",
-                        "props": {
-                            "title": "Bàn giao khách hàng",
-                            "description": "Bảng tương tác trực tiếp: tìm kiếm, sắp xếp và lọc ngay trên màn hình."
-                        },
-                        "children": ["data-table"]
-                    },
-                    {
-                        "id": "data-table",
-                        "component": "DataTable",
-                        "props": {
-                            "dataPath": "projects",
-                            "searchable": True,
-                            "pageSize": 5,
-                            "columns": [
-                                { "key": "code", "title": "Mã DA", "sortable": True },
-                                { "key": "client", "title": "Khách hàng", "sortable": True },
-                                { "key": "type", "title": "Dịch vụ", "sortable": True },
-                                { "key": "status", "title": "Trạng thái", "type": "badge" },
-                                { "key": "budget", "title": "Ngân sách ($)", "sortable": True }
-                            ]
-                        }
-                    }
-                ],
-                "dataModel": {
-                    "projects": [
-                        { "code": "DA-101", "client": "Vogue Editorial", "type": "Chụp bìa tạp chí", "status": "Active", "budget": 4500 },
-                        { "code": "DA-102", "client": "Architectural Digest", "type": "Không gian nội thất", "status": "Active", "budget": 6200 },
-                        { "code": "DA-103", "client": "Nordic Brand", "type": "Lookbook Thu Đông", "status": "Review", "budget": 3800 },
-                        { "code": "DA-104", "client": "TechCorp App", "type": "Chân dung nhân sự", "status": "Completed", "budget": 1500 },
-                        { "code": "DA-105", "client": "Kinfolk Gallery", "type": "Triển lãm nghệ thuật", "status": "Pending", "budget": 8000 }
-                    ]
-                }
-            }
-        }
-    else:
-        # Generate Apple Style Minimalist Landing Page (Studio / Portfolio / Product)
-        return {
-            "version": "1.0",
-            "createSurface": {
-                "surfaceId": "page-main",
-                "catalogId": "astryx-web-v1",
-                "title": "Minimalist Studio Landing Page",
-                "components": [
-                    {
-                        "id": "root",
-                        "component": "Container",
-                        "props": { "maxWidth": "xl", "className": "bg-white" },
-                        "children": ["navbar", "hero-section", "services-section", "pricing-section", "contact-section", "footer"]
-                    },
-                    {
-                        "id": "navbar",
-                        "component": "Row",
-                        "props": { "justify": "between", "align": "center", "className": "px-8 py-5 border-b border-zinc-200/80 bg-white/80 backdrop-blur-md" },
-                        "children": ["nav-brand", "nav-links"]
-                    },
-                    {
-                        "id": "nav-brand",
-                        "component": "Heading",
-                        "props": { "level": 3, "text": "LUMEN STUDIO", "className": "text-sm tracking-widest font-semibold text-zinc-900" }
-                    },
-                    {
-                        "id": "nav-links",
-                        "component": "Row",
-                        "props": { "gap": "md" },
-                        "children": ["btn-services", "btn-contact"]
-                    },
-                    {
-                        "id": "btn-services",
-                        "component": "Button",
-                        "props": { "label": "Dịch vụ", "variant": "ghost", "size": "sm" }
-                    },
-                    {
-                        "id": "btn-contact",
-                        "component": "Button",
-                        "props": { "label": "Đặt lịch chụp", "variant": "primary", "size": "sm" }
-                    },
-                    {
-                        "id": "hero-section",
-                        "component": "Container",
-                        "props": { "className": "px-8 py-24 text-center max-w-4xl mx-auto space-y-6" },
-                        "children": ["hero-pill", "hero-title", "hero-subtitle", "hero-actions"]
-                    },
-                    {
-                        "id": "hero-pill",
-                        "component": "Badge",
-                        "props": { "label": "Nhiếp ảnh Chân dung & Kiến trúc", "variant": "neutral" }
-                    },
-                    {
-                        "id": "hero-title",
-                        "component": "Heading",
-                        "props": {
-                            "level": 1,
-                            "text": "Bắt trọn khoảnh khắc tĩnh lặng giữa chuyển động",
-                            "className": "text-5xl font-semibold tracking-tight text-zinc-950 leading-tight"
-                        }
-                    },
-                    {
-                        "id": "hero-subtitle",
-                        "component": "Text",
-                        "props": {
-                            "text": "Chuyên về hình ảnh thời trang cao cấp, kiến trúc không gian và chân dung nghệ thuật với ánh sáng tự nhiên tinh tế.",
-                            "className": "text-lg text-zinc-600 font-normal max-w-2xl mx-auto leading-relaxed"
-                        }
-                    },
-                    {
-                        "id": "hero-actions",
-                        "component": "Row",
-                        "props": { "justify": "center", "gap": "md", "className": "pt-4" },
-                        "children": ["cta-primary", "cta-secondary"]
-                    },
-                    {
-                        "id": "cta-primary",
-                        "component": "Button",
-                        "props": { "label": "Xem Portfolio", "variant": "primary", "size": "md" }
-                    },
-                    {
-                        "id": "cta-secondary",
-                        "component": "Button",
-                        "props": { "label": "Bảng giá chi tiết", "variant": "outline", "size": "md" }
-                    },
-                    {
-                        "id": "services-section",
-                        "component": "Container",
-                        "props": { "className": "px-8 py-20 max-w-6xl mx-auto" },
-                        "children": ["services-header", "services-grid"]
-                    },
-                    {
-                        "id": "services-header",
-                        "component": "Heading",
-                        "props": { "level": 2, "text": "Dịch vụ tiêu biểu", "className": "text-2xl font-semibold text-zinc-900 mb-10 text-center tracking-tight" }
-                    },
-                    {
-                        "id": "services-grid",
-                        "component": "Grid",
-                        "props": { "cols": 3, "gap": "lg" },
-                        "children": ["service-card-1", "service-card-2", "service-card-3"]
-                    },
-                    {
-                        "id": "service-card-1",
-                        "component": "Card",
-                        "props": {
-                            "title": "Chân dung Nghệ thuật",
-                            "description": "Studio và ngoại cảnh phục vụ bìa tạp chí, ấn phẩm truyền thông và thương hiệu cá nhân đẳng cấp."
-                        }
-                    },
-                    {
-                        "id": "service-card-2",
-                        "component": "Card",
-                        "props": {
-                            "title": "Không gian Kiến trúc",
-                            "description": "Tư liệu nhiếp ảnh chuẩn mực cho công trình nhà ở cao cấp và không gian thương mại hiện đại."
-                        }
-                    },
-                    {
-                        "id": "service-card-3",
-                        "component": "Card",
-                        "props": {
-                            "title": "Bản in Nghệ thuật",
-                            "description": "Bản in ấn phẩm giới hạn trên chất liệu giấy cotton chuẩn bảo tàng lưu trữ quốc tế."
-                        }
-                    },
-                    {
-                        "id": "pricing-section",
-                        "component": "Container",
-                        "props": { "className": "px-8 py-20 border-t border-zinc-200/80 max-w-5xl mx-auto text-center" },
-                        "children": ["pricing-header", "pricing-grid"]
-                    },
-                    {
-                        "id": "pricing-header",
-                        "component": "Heading",
-                        "props": { "level": 2, "text": "Bảng giá buổi chụp", "className": "text-3xl font-semibold text-zinc-950 mb-10 tracking-tight" }
-                    },
-                    {
-                        "id": "pricing-grid",
-                        "component": "Grid",
-                        "props": { "cols": 2, "gap": "lg" },
-                        "children": ["price-card-standard", "price-card-editorial"]
-                    },
-                    {
-                        "id": "price-card-standard",
-                        "component": "Card",
-                        "props": {
-                            "title": "Gói Studio Tiêu chuẩn",
-                            "description": "$450 · Buổi chụp 2 tiếng · 15 ảnh chỉnh sửa chất lượng cao · 2 trang phục · Trả file gốc ngay trong ngày",
-                            "className": "text-left"
-                        }
-                    },
-                    {
-                        "id": "price-card-editorial",
-                        "component": "Card",
-                        "props": {
-                            "title": "Gói Thương mại Trọn ngày",
-                            "description": "$1,800 · Chụp trọn ngày tại địa điểm · Toàn quyền bản quyền thương mại · Chỉ đạo nghệ thuật & Stylist",
-                            "className": "text-left border-zinc-900 shadow-md"
-                        }
-                    },
-                    {
-                        "id": "contact-section",
-                        "component": "Container",
-                        "props": { "className": "px-8 py-20 max-w-xl mx-auto text-center space-y-6" },
-                        "children": ["contact-title", "contact-email-input", "contact-btn"]
-                    },
-                    {
-                        "id": "contact-title",
-                        "component": "Heading",
-                        "props": { "level": 2, "text": "Liên hệ đặt lịch", "className": "text-2xl font-semibold text-zinc-950 tracking-tight" }
-                    },
-                    {
-                        "id": "contact-email-input",
-                        "component": "Input",
-                        "props": { "placeholder": "Nhập địa chỉ email của bạn...", "type": "email" }
-                    },
-                    {
-                        "id": "contact-btn",
-                        "component": "Button",
-                        "props": { "label": "Gửi yêu cầu đặt lịch", "variant": "primary", "size": "md" }
-                    },
-                    {
-                        "id": "footer",
-                        "component": "Container",
-                        "props": { "className": "px-8 py-10 border-t border-zinc-200/80 text-center text-xs text-zinc-500" },
-                        "children": ["footer-text"]
-                    },
-                    {
-                        "id": "footer-text",
-                        "component": "Text",
-                        "props": { "text": "© 2026 Lumen Studio. All rights reserved. Thiết kế theo chuẩn Apple tối giản.", "className": "text-zinc-500" }
-                    }
-                ],
-                "dataModel": {
-                    "contactEmail": ""
-                }
-            }
-        }
+    """Choose a simple local layout based on the user's actual request."""
+    lowered = prompt.lower()
+    if any(term in lowered for term in ("dashboard", "analytics", "thống kê", "bảng điều khiển")):
+        return _generate_dashboard()
+    if any(term in lowered for term in (
+        "thương mại điện tử", "bán thiết bị", "cửa hàng công nghệ",
+        "e-commerce", "ecommerce", "online store", "shopping cart",
+    )):
+        return _generate_storefront(prompt)
+    return _generate_generic_site(prompt)
+
 
 def generate_edit_delta(prompt: str, current_surface_id: str) -> Dict[str, Any]:
-    """
-    Surgically updates only the affected component node (Incremental Editing).
-    """
-    p_lower = prompt.lower()
-    if "hero" in p_lower or "tiêu đề" in p_lower:
+    """Surgically update a known hero or CTA node."""
+    lowered = prompt.lower()
+    if "hero" in lowered or "tiêu đề" in lowered:
         return {
             "version": "1.0",
             "updateComponents": {
                 "surfaceId": current_surface_id or "page-main",
-                "components": [
-                    {
-                        "id": "hero-title",
-                        "component": "Heading",
-                        "props": {
-                            "level": 1,
-                            "text": "Không gian nghệ thuật & Chân dung thị giác đỉnh cao",
-                            "className": "text-5xl font-semibold tracking-tight text-zinc-950 leading-tight"
-                        }
-                    }
-                ]
-            }
+                "components": [{
+                    "id": "hero-title",
+                    "component": "Heading",
+                    "props": {"level": 1, "text": "Khám phá trải nghiệm mới"},
+                }],
+            },
         }
-    elif "cta" in p_lower or "nút" in p_lower:
+    if "cta" in lowered or "nút" in lowered:
         return {
             "version": "1.0",
             "updateComponents": {
                 "surfaceId": current_surface_id or "page-main",
-                "components": [
-                    {
-                        "id": "cta-primary",
-                        "component": "Button",
-                        "props": { "label": "Đăng ký ngay hôm nay", "variant": "primary", "size": "md" }
-                    }
-                ]
-            }
+                "components": [{
+                    "id": "cta-primary",
+                    "component": "Button",
+                    "props": {"label": "Đăng ký ngay hôm nay", "variant": "primary", "size": "md"},
+                }],
+            },
         }
-    else:
-        return {
-            "version": "1.0",
-            "updateDataModel": {
-                "surfaceId": current_surface_id or "page-main",
-                "path": "/updatedAt",
-                "value": "just_now"
-            }
-        }
+    return {
+        "version": "1.0",
+        "updateDataModel": {
+            "surfaceId": current_surface_id or "page-main",
+            "path": "/updatedAt",
+            "value": "just_now",
+        },
+    }

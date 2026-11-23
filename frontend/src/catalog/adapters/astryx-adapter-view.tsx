@@ -1,4 +1,5 @@
 import React from 'react';
+import { Image as ImageIcon } from 'lucide-react';
 import { A2UIComponentNode } from '../../a2ui/protocol/a2ui-types';
 
 interface AstryxComponentProps {
@@ -198,8 +199,11 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
   const [search, setSearch] = React.useState('');
   const [sortKey, setSortKey] = React.useState<string | null>(null);
   const [sortAsc, setSortAsc] = React.useState(true);
+  const [page, setPage] = React.useState(1);
 
   const dataPath = node.props?.dataPath;
+  const pageSize: number = Number(node.props?.pageSize) || 5;
+
   let records: any[] = [];
   if (dataPath && Array.isArray(dataModel[dataPath])) {
     records = dataModel[dataPath];
@@ -221,6 +225,11 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
     });
   }
 
+  // Pagination is fully client-side (60fps, no server round-trip).
+  const totalPages = Math.max(1, Math.ceil(records.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedRecords = records.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   const columns: Array<{ key: string; title: string; sortable?: boolean; type?: string }> = node.props?.columns || [];
 
   return (
@@ -229,7 +238,7 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           placeholder="Lọc dữ liệu..."
           className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-900 outline-none focus:border-zinc-400 focus:bg-white placeholder-zinc-400 transition"
         />
@@ -245,6 +254,7 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
                     if (col.sortable) {
                       if (sortKey === col.key) setSortAsc(!sortAsc);
                       else { setSortKey(col.key); setSortAsc(true); }
+                      setPage(1);
                     }
                   }}
                   className={`px-4 py-3.5 text-left font-medium text-zinc-600 uppercase tracking-wider ${col.sortable ? 'cursor-pointer hover:text-zinc-900 select-none' : ''}`}
@@ -256,7 +266,7 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {records.map((row, i) => (
+            {pagedRecords.map((row, i) => (
               <tr key={i} className="hover:bg-zinc-50/70 transition">
                 {columns.map(col => (
                   <td key={col.key} className="px-4 py-3.5 text-zinc-700 font-normal">
@@ -271,12 +281,63 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
                 ))}
               </tr>
             ))}
-            {records.length === 0 && (
+            {pagedRecords.length === 0 && (
               <tr><td colSpan={columns.length} className="text-center py-10 text-zinc-400">Không tìm thấy dữ liệu</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-xs text-zinc-500">
+          <span>
+            {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, records.length)} / {records.length} bản ghi
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Trước
+            </button>
+            <span className="px-2 font-medium text-zinc-700">{safePage} / {totalPages}</span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Sau
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const AstryxImage: React.FC<AstryxComponentProps> = ({ node }) => {
+  const src = String(node.props?.src || '');
+  const alt = String(node.props?.alt || '');
+  const ratio = node.props?.ratio;
+  const ratioCls = ratio === 'wide' ? 'aspect-[2/1]' : ratio === 'tall' ? 'aspect-[3/4]' : 'aspect-video';
+  if (src) {
+    return (
+      <div
+        className={`overflow-hidden rounded-2xl border border-zinc-200/80 bg-zinc-50 ${ratioCls} ${node.props?.className || ''}`}
+        data-a2ui-id={node.id}
+      >
+        <img src={src} alt={alt} className="h-full w-full object-cover" loading="lazy" />
+      </div>
+    );
+  }
+  // No src: Apple-style placeholder tile so layouts with image slots stay balanced.
+  return (
+    <div
+      className={`flex items-center justify-center rounded-2xl border border-zinc-200/80 bg-zinc-100/60 ${ratioCls} ${node.props?.className || ''}`}
+      data-a2ui-id={node.id}
+    >
+      <ImageIcon className="h-6 w-6 text-zinc-400" aria-hidden />
+      {alt && <span className="ml-2.5 text-xs font-medium text-zinc-500">{alt}</span>}
     </div>
   );
 };
@@ -301,4 +362,5 @@ export const ASTRYX_REGISTRY: Record<string, React.FC<AstryxComponentProps>> = {
   Input: AstryxInput,
   MetricsCard: AstryxMetricsCard,
   DataTable: AstryxDataTable,
+  Image: AstryxImage,
 };

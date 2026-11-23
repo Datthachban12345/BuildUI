@@ -4,6 +4,8 @@ from ..model_adapters.base import LLMResult, ModelAdapter, make_trimmed_context
 from ..model_adapters.registry import get_adapter, get_deterministic_adapter
 from ..planners.ui_planner import UIPlanner
 from ..validators.a2ui_validator import A2UIValidator
+from ..sanitizers import sanitize_message
+from .polish import polish_create_surface
 
 
 class A2UIGenerator:
@@ -21,7 +23,15 @@ class A2UIGenerator:
         context = make_trimmed_context(current_surface_id, current_surface_summary)
         adapter = adapter or get_adapter()
         result = await adapter.handle(intent, prompt, context)
+
+        # --- Sanitize + Validate LLM output ---
         if result.ok and result.a2ui is not None:
+            if isinstance(result.a2ui, dict) and "createSurface" in result.a2ui:
+                # Design-system polish: fill missing Apple spacing/type tokens
+                # on unstyled nodes only; already-styled surfaces pass through
+                # untouched.
+                result.a2ui = polish_create_surface(result.a2ui)
+            result.a2ui = sanitize_message(result.a2ui)
             valid, error = A2UIValidator.validate_message(result.a2ui)
             if not valid:
                 result.ok = False

@@ -15,7 +15,9 @@ from backend.app.agent.model_adapters.openrouter_adapter import (
     OpenRouterAdapter,
     _extract_completion_content,
     _flatten_nested_create_surface,
+    _has_visible_content,
 )
+from backend.app.agent.generators.polish import polish_create_surface
 from backend.app.agent.validators.a2ui_validator import (
     A2UIValidator,
     MAX_COMPONENTS_PER_SURFACE,
@@ -97,6 +99,221 @@ def test_nested_create_surface_is_flattened_to_renderable_child_ids():
     assert A2UIValidator.validate_message(normalized) == (True, None)
 
 
+def test_unknown_component_aliases_are_mapped_to_catalog_components():
+    nested = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "store",
+            "components": [{
+                "id": "root",
+                "component": "div",
+                "children": [
+                    {"id": "hero-title", "component": "h1", "text": "TechNova"},
+                    {
+                        "id": "product-card",
+                        "component": "ProductCard",
+                        "props": {"name": "MacBook Pro M4", "description": "Laptop cao cấp"},
+                        "children": [
+                            {"id": "product-photo", "component": "img", "src": "/images/macbook.jpg"},
+                        ],
+                    },
+                    {
+                        "id": "feature-card",
+                        "component": "FeatureCard",
+                        "props": {"title": "Giao hàng nhanh", "description": "Toàn quốc"},
+                    },
+                ],
+            }],
+        },
+    }
+
+    normalized = _flatten_nested_create_surface(nested)
+    components = {component["id"]: component for component in normalized["createSurface"]["components"]}
+    assert components["root"]["component"] == "Container"
+    assert components["hero-title"]["component"] == "Heading"
+    assert components["hero-title"]["props"]["text"] == "TechNova"
+    assert components["product-card"]["component"] == "Card"
+    assert components["product-photo"]["component"] == "Image"
+    assert components["product-photo"]["props"]["src"] == "/images/macbook.jpg"
+    assert components["feature-card"]["component"] == "Card"
+    assert A2UIValidator.validate_message(normalized) == (True, None)
+
+
+def test_nested_create_surface_drops_broken_nodes_and_repairs_references():
+    malformed = {
+        "version": "1.0",
+        "createSurface": {
+            "components": [
+                {
+                    "id": "page",
+                    "component": "Container",
+                    "children": [
+                        {
+                            "id": "missing-component",
+                            "children": [
+                                {
+                                    "id": "salvaged-title",
+                                    "component": "Heading",
+                                    "props": {"text": "TechNova"},
+                                }
+                            ],
+                        },
+                        {"component": "Text", "props": {"text": "drop: no id"}},
+                        "missing-reference",
+                    ],
+                }
+            ],
+        },
+    }
+
+    normalized = _flatten_nested_create_surface(malformed)
+    surface = normalized["createSurface"]
+    components = {component["id"]: component for component in surface["components"]}
+
+    assert surface["surfaceId"] == "page-main"
+    assert components["root"]["children"] == ["page"]
+    assert components["page"]["children"] == ["salvaged-title"]
+    assert set(components) == {"root", "page", "salvaged-title"}
+    assert A2UIValidator.validate_message(normalized) == (True, None)
+
+
+def test_root_only_create_surface_is_not_renderable():
+    empty_surface = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "store",
+            "components": [
+                {"id": "root", "component": "Container", "children": []},
+            ],
+            "dataModel": {"products": [{"name": "Laptop"}]},
+        },
+    }
+    valid, error = A2UIValidator.validate_message(empty_surface)
+    assert valid, error
+    assert not _has_visible_content(empty_surface)
+
+    visible_surface = _flatten_nested_create_surface({
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "store",
+            "components": [
+                {
+                    "id": "root",
+                    "component": "Container",
+                    "children": [
+                        {"id": "title", "component": "Heading", "props": {"text": "Store"}},
+                    ],
+                },
+            ],
+        },
+    })
+    assert _has_visible_content(visible_surface)
+
+
+def test_root_only_surface_triggers_corrective_retry_not_template(monkeypatch):
+    """A createSurface with no visible content gets a corrective retry asking
+    the model to render real sections - no hard-coded template is injected."""
+    import backend.app.agent.model_adapters.openrouter_adapter as adapter_mod
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [{
+                    "message": {
+                        "content": json.dumps({
+                            "version": "1.0",
+                            "createSurface": {
+                                "surfaceId": "store",
+                                "components": [
+                                    {"id": "root", "component": "Container"},
+                                ],
+                                "dataModel": {"products": [{"name": "Laptop"}]},
+                            },
+                        }),
+                    },
+                }],
+            }
+
+    class FakeAsyncClient:
+        requests = []
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            self.requests.append(json)
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setattr("backend.app.agent.model_adapters.openrouter_adapter.httpx.AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(OpenRouterAdapter().handle("generate_new", "Tạo cửa hàng công nghệ"))
+
+    # No template injection: the adapter reports the empty-content failure so
+    # the generator falls back deterministically instead.
+    assert result.ok is False
+    assert "no visible content" in result.error
+    # Corrective retry was attempted per attempt.
+    max_attempts = adapter_mod._MAX_ATTEMPTS
+    assert len(FakeAsyncClient.requests) == max_attempts
+    # The corrective turn mentioned adding real content.
+    last_messages = FakeAsyncClient.requests[-1]["messages"]
+    corrective = [m for m in last_messages if m["role"] == "user" and "visible content" in m["content"]]
+    assert corrective, "expected a corrective turn asking for real section content"
+
+
+def test_root_only_surface_has_no_visible_content():
+    empty_surface = _flatten_nested_create_surface({
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "store",
+            "components": [{"id": "root", "component": "Container"}],
+        },
+    })
+    assert not _has_visible_content(empty_surface)
+
+
+def test_polish_fills_missing_spacing_and_typography():
+    """The design-system polisher adds Apple tokens only where missing."""
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "page-main",
+            "catalogId": "astryx-web-v1",
+            "components": [
+                {"id": "root", "component": "Container", "children": ["hero", "pricing"]},
+                {"id": "hero", "component": "Container", "children": ["hero-title"]},
+                {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": "X"}},
+                {"id": "pricing", "component": "Grid", "props": {"cols": 2}, "children": []},
+            ],
+        },
+    }
+    # An already-styled section that must NOT be touched.
+    message["createSurface"]["components"].append(
+        {"id": "styled", "component": "Container",
+         "props": {"className": "px-4 py-6"}, "children": []})
+    polished = polish_create_surface(message)
+    by_id = {c["id"]: c for c in polished["createSurface"]["components"]}
+    assert by_id["root"]["props"]["className"] == "bg-white"
+    # Unstyled top-level sections get the Apple rhythm.
+    assert "py-20" in by_id["hero"]["props"]["className"]
+    assert "py-20" in by_id["pricing"]["props"]["className"]
+    # Unstyled heading gets the type scale.
+    assert "text-5xl" in by_id["hero-title"]["props"]["className"]
+    # Already-styled node is untouched.
+    assert by_id["styled"]["props"]["className"] == "px-4 py-6"
+    valid, _ = A2UIValidator.validate_message(polished)
+    assert valid is True
+
+
 def test_validator_rejects_unknown_child_ids():
     message = {
         "version": "1.0",
@@ -120,6 +337,27 @@ def test_deterministic_adapter_fallback_for_generation():
     assert result.a2ui["createSurface"]["components"]
     valid, _ = A2UIValidator.validate_message(result.a2ui)
     assert valid is True
+
+
+def test_deterministic_ecommerce_fallback_uses_brand_and_products_from_prompt():
+    from backend.app.agent.generators.deterministic_payloads import generate_deterministic
+
+    prompt = """Tạo website thương mại điện tử bán thiết bị công nghệ.
+Tên thương hiệu: TechNova.
+Dữ liệu mẫu:
+Tạo ít nhất 2 sản phẩm:
+- MacBook Pro M4
+- Sony WH-1000XM6
+"""
+    message = generate_deterministic(prompt)
+    surface = message["createSurface"]
+    components = {component["id"]: component for component in surface["components"]}
+    assert surface["title"] == "TechNova - Thiết bị công nghệ"
+    assert components["navbar-brand"]["props"]["text"] == "TechNova"
+    assert components["product-1"]["props"]["title"] == "MacBook Pro M4"
+    assert components["product-2"]["props"]["title"] == "Sony WH-1000XM6"
+    assert "LUMEN" not in json.dumps(message)
+    assert A2UIValidator.validate_message(message) == (True, None)
 
 
 def test_validator_blocks_dangerous_script_payload():
@@ -170,20 +408,52 @@ def test_validator_blocks_over_quota_components():
 
 def test_sse_stream_generate_emits_typed_events(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    monkeypatch.setenv("LIVE_ASSEMBLY_BLOCK_DELAY", "0")
     events = asyncio.run(collect_stream("Tạo landing page cho studio ảnh", None, None))
     types = [e["type"] for e in events]
     assert "console" in types
     assert "text" in types
     assert "steps" in types
     assert "a2ui" in types
-    # exactly one a2ui message
-    a2ui_events = [e for e in events if e["type"] == "a2ui"]
-    assert len(a2ui_events) == 1
     console_events = [e["payload"] for e in events if e["type"] == "console"]
     assert any(e.get("provider") == "deterministic" for e in console_events)
     assert any(isinstance(e.get("data"), dict) and "createSurface" in e["data"] for e in console_events)
-    valid, _ = A2UIValidator.validate_message(a2ui_events[0]["payload"])
-    assert valid is True
+
+
+def test_sse_generate_streams_live_assembly_blocks(monkeypatch):
+    """Phase 4: generate_new streams a skeleton then one block per section."""
+    monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    monkeypatch.setenv("LIVE_ASSEMBLY_BLOCK_DELAY", "0")
+    events = asyncio.run(collect_stream("Tạo landing page cho studio ảnh", None, None))
+    a2ui_events = [e for e in events if e["type"] == "a2ui"]
+    assert len(a2ui_events) >= 4, "expected skeleton + at least 3 section blocks"
+
+    # Block 0 is the createSurface skeleton (root + empty section containers).
+    first = a2ui_events[0]["payload"]
+    assert "createSurface" in first
+    skeleton_components = {c["id"] for c in first["createSurface"]["components"]}
+    assert "root" in skeleton_components
+    # every block must validate on its own
+    for event in a2ui_events[1:]:
+        assert "updateComponents" in event["payload"]
+        valid, err = A2UIValidator.validate_message(event["payload"])
+        assert valid, err
+    valid, err = A2UIValidator.validate_message(first)
+    assert valid, err
+
+    # Replaying every block through a runtime-like reducer rebuilds the
+    # complete surface (no node lost during assembly).
+    from backend.app.agent.generators.deterministic_payloads import generate_deterministic
+    complete = generate_deterministic("Tạo landing page cho studio ảnh")
+    expected_ids = {c["id"] for c in complete["createSurface"]["components"]}
+    seen: set = set()
+    for event in a2ui_events:
+        payload = event["payload"]
+        if "createSurface" in payload:
+            seen.update(c["id"] for c in payload["createSurface"]["components"])
+        else:
+            seen.update(c["id"] for c in payload["updateComponents"]["components"])
+    assert expected_ids <= seen
 
 
 def test_sse_stream_edit_emits_update_components():
