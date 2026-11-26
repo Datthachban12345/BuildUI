@@ -17,12 +17,14 @@ from backend.app.agent.model_adapters.openrouter_adapter import (
     _flatten_nested_create_surface,
     _has_visible_content,
 )
+from backend.app.agent.prompts.apple_designer import AppleDesignerPrompt
 from backend.app.agent.generators.polish import polish_create_surface
 from backend.app.agent.validators.a2ui_validator import (
     A2UIValidator,
     MAX_COMPONENTS_PER_SURFACE,
     contains_dangerous_content,
 )
+from backend.app.agent.validators.design_validator import assess_design_quality
 from backend.app.agent.harness.orchestrator import AgentOrchestrator
 from backend.app.agent.planners.ui_planner import UIPlanner
 
@@ -96,6 +98,44 @@ def test_nested_create_surface_is_flattened_to_renderable_child_ids():
     surface = normalized["createSurface"]
     assert [component["id"] for component in surface["components"]] == ["root", "title"]
     assert surface["components"][0]["children"] == ["title"]
+    assert A2UIValidator.validate_message(normalized) == (True, None)
+
+
+def test_nested_normalizer_prefers_tree_edges_over_flat_root_child_list():
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "store",
+            "components": [
+                {
+                    "id": "root",
+                    "component": "Container",
+                    "props": {
+                        "children": ["navbar", "hero", "main-content", "footer"],
+                    },
+                    "children": [
+                        "navbar", "hero", "main-content", "footer",
+                        "brand", "hero-title", "product-grid", "product-card",
+                    ],
+                },
+                {"id": "navbar", "component": "Container", "children": ["brand"]},
+                {"id": "brand", "component": "Heading", "props": {"text": "Store"}},
+                {"id": "hero", "component": "Container", "children": ["hero-title"]},
+                {"id": "hero-title", "component": "Heading", "props": {"text": "Welcome"}},
+                {"id": "main-content", "component": "Container", "children": ["product-grid"]},
+                {"id": "product-grid", "component": "Grid", "children": ["product-card"]},
+                {"id": "product-card", "component": "Card", "props": {"title": "Product"}},
+                {"id": "footer", "component": "Container"},
+            ],
+        },
+    }
+
+    normalized = _flatten_nested_create_surface(message)
+    components = {node["id"]: node for node in normalized["createSurface"]["components"]}
+    assert components["root"]["children"] == ["navbar", "hero", "main-content", "footer"]
+    assert components["navbar"]["children"] == ["brand"]
+    assert components["main-content"]["children"] == ["product-grid"]
+    assert "children" not in components["root"]["props"]
     assert A2UIValidator.validate_message(normalized) == (True, None)
 
 
@@ -218,23 +258,31 @@ def test_root_only_surface_triggers_corrective_retry_not_template(monkeypatch):
     class FakeResponse:
         status_code = 200
 
-        def json(self):
-            return {
-                "choices": [{
-                    "message": {
-                        "content": json.dumps({
-                            "version": "1.0",
-                            "createSurface": {
-                                "surfaceId": "store",
-                                "components": [
-                                    {"id": "root", "component": "Container"},
-                                ],
-                                "dataModel": {"products": [{"name": "Laptop"}]},
-                            },
-                        }),
-                    },
-                }],
-            }
+        def __init__(self):
+            self.content = json.dumps({
+                "version": "1.0",
+                "createSurface": {
+                    "surfaceId": "store",
+                    "components": [
+                        {"id": "root", "component": "Container"},
+                    ],
+                    "dataModel": {"products": [{"name": "Laptop"}]},
+                },
+            })
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aread(self):
+            return b""
+
+        async def aiter_lines(self):
+            delta = {"choices": [{"delta": {"content": self.content}}]}
+            yield f"data: {json.dumps(delta)}"
+            yield "data: [DONE]"
 
     class FakeAsyncClient:
         requests = []
@@ -248,7 +296,7 @@ def test_root_only_surface_triggers_corrective_retry_not_template(monkeypatch):
         async def __aexit__(self, *args):
             return None
 
-        async def post(self, url, headers, json):
+        def stream(self, method, url, headers, json):
             self.requests.append(json)
             return FakeResponse()
 
@@ -268,6 +316,244 @@ def test_root_only_surface_triggers_corrective_retry_not_template(monkeypatch):
     last_messages = FakeAsyncClient.requests[-1]["messages"]
     corrective = [m for m in last_messages if m["role"] == "user" and "visible content" in m["content"]]
     assert corrective, "expected a corrective turn asking for real section content"
+
+
+@pytest.mark.parametrize(
+    "props",
+    [
+        {"cols": 3, "gap": "lg"},
+        {"cols": {"base": 1, "sm": 2, "lg": 4}, "gap": "md"},
+        {"paddingX": "lg", "maxWidth": "xl"},
+        {"variant": "elevated"},
+    ],
+)
+def test_a2ui_validator_accepts_design_contract_props(props):
+    component = "Grid"
+    if "paddingX" in props:
+        component = "Container"
+    elif "variant" in props:
+        component = "Card"
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "contract",
+            "components": [{"id": "root", "component": component, "props": props}],
+        },
+    }
+
+    assert A2UIValidator.validate_message(message) == (True, None)
+
+
+@pytest.mark.parametrize(
+    ("component", "props", "expected_error"),
+    [
+        ("Grid", {"cols": {"base": 1, "tablet": 3}}, "unsupported breakpoints"),
+        ("Grid", {"cols": {"base": 5}}, "integers from 1 to 4"),
+        ("Card", {"variant": "glass"}, "variant is not supported"),
+        ("Image", {"fit": "stretch"}, "fit is not supported"),
+        ("Container", {"paddingX": "xl"}, "paddingX is not supported"),
+        ("Text", {"className": "px-2.5"}, "4px-based"),
+        ("Text", {"className": "mt-[13px]"}, "4px-based"),
+    ],
+)
+def test_a2ui_validator_rejects_out_of_contract_design_props(component, props, expected_error):
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "contract",
+            "components": [{"id": "root", "component": component, "props": props}],
+        },
+    }
+
+    valid, error = A2UIValidator.validate_message(message)
+    assert not valid
+    assert expected_error in error
+
+
+def test_openrouter_stream_emits_surface_before_completion(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self):
+            self.deltas = [
+                '{"version":"1.0","createSurface":{"surfaceId":"page-main","title":"Test",'
+                '"components":[{"id":"root","component":"Container","children":["hero","content"]},',
+                '{"id":"hero","component":"Heading","props":{"text":"Hello"}},',
+                '{"id":"content","component":"Text","props":{"text":"Welcome"}}]}}',
+            ]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aread(self):
+            return b""
+
+        async def aiter_lines(self):
+            for content in self.deltas:
+                yield f'data: {json.dumps({"choices": [{"delta": {"content": content}}]})}'
+            yield "data: [DONE]"
+
+    class FakeAsyncClient:
+        requests = []
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, method, url, headers, json):
+            self.requests.append(json)
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setattr(
+        "backend.app.agent.model_adapters.openrouter_adapter.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+    progress = []
+
+    async def report(event):
+        progress.append(event)
+
+    result = asyncio.run(OpenRouterAdapter().handle(
+        "generate_new",
+        "Tạo website",
+        progress_callback=report,
+    ))
+
+    assert result.ok
+    assert FakeAsyncClient.requests[0]["stream"] is True
+    assert progress[0]["type"] == "a2ui"
+    initial = progress[0]["payload"]["createSurface"]
+    initial_components = {node["id"]: node for node in initial["components"]}
+    assert initial_components["root"]["children"] == ["hero", "content"]
+    assert initial_components["hero"]["component"] == "Container"
+    assert any(event["payload"].get("updateComponents") for event in progress[1:])
+
+
+def test_design_quality_gate_identifies_missing_commerce_composition():
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "page-main",
+            "components": [
+                {"id": "root", "component": "Container", "children": ["navbar", "hero", "products"]},
+                {"id": "navbar", "component": "Container"},
+                {"id": "hero", "component": "Container", "children": ["hero-title"]},
+                {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": "Điện thoại"}},
+                {"id": "products", "component": "Grid", "children": ["phone-card"]},
+                {"id": "phone-card", "component": "Card", "props": {"title": "Phone", "description": "Flagship"}},
+            ],
+        },
+    }
+
+    issues = assess_design_quality(message, "Tạo website thương mại điện tử bán điện thoại")
+    assert any("call-to-action" in issue for issue in issues)
+    assert any("Image" in issue for issue in issues)
+    assert any("prices" in issue for issue in issues)
+    assert not any("three distinct" in issue or "level-1" in issue for issue in issues)
+
+
+def test_generation_prompt_builds_domain_specific_design_brief():
+    prompt = AppleDesignerPrompt.generation_user_prompt("Tạo shop bán giày thủ công, phong cách tối giản")
+    assert "internally turn it into a short design brief" in prompt
+    assert "domain-specific art direction" in prompt
+    assert "Tạo shop bán giày thủ công" in prompt
+    assert "product/purchase Button" in AppleDesignerPrompt.system()
+
+
+def test_openrouter_retries_structurally_weak_design_without_discarding_it(monkeypatch):
+    weak_surface = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "page-main",
+            "title": "Shop",
+            "components": [
+                {"id": "root", "component": "Container", "children": ["navbar", "hero", "products"]},
+                {"id": "navbar", "component": "Container"},
+                {"id": "hero", "component": "Container", "children": ["hero-title"]},
+                {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": "Thiết bị"}},
+                {"id": "products", "component": "Grid", "children": ["phone-card"]},
+                {"id": "phone-card", "component": "Card", "props": {"title": "Phone", "description": "Flagship"}},
+            ],
+        },
+    }
+    improved_surface = json.loads(json.dumps(weak_surface))
+    improved_components = improved_surface["createSurface"]["components"]
+    improved_components[1]["props"] = {"className": "py-8"}
+    improved_components[2]["props"] = {"className": "py-20"}
+    improved_components[2]["children"].extend(["hero-copy", "hero-cta"])
+    improved_components.extend([
+        {"id": "hero-copy", "component": "Text", "props": {"text": "Thiết bị phù hợp mỗi ngày."}},
+        {"id": "hero-cta", "component": "Button", "props": {"label": "Khám phá", "variant": "primary"}},
+    ])
+    improved_components[-1]["children"] = ["phone-image", "phone-price", "phone-buy"]
+    improved_components.extend([
+        {"id": "phone-image", "component": "Image", "props": {"alt": "Phone", "ratio": "square"}},
+        {"id": "phone-price", "component": "Text", "props": {"text": "₫12.000.000"}},
+        {"id": "phone-buy", "component": "Button", "props": {"label": "Mua ngay", "variant": "primary"}},
+    ])
+    outputs = [json.dumps(weak_surface), json.dumps(improved_surface)]
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, content):
+            self.content = content
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aread(self):
+            return b""
+
+        async def aiter_lines(self):
+            yield f'data: {json.dumps({"choices": [{"delta": {"content": self.content}}]})}'
+            yield "data: [DONE]"
+
+    class FakeAsyncClient:
+        requests = []
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, method, url, headers, json):
+            self.requests.append(json)
+            return FakeResponse(outputs[len(self.requests) - 1])
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setattr(
+        "backend.app.agent.model_adapters.openrouter_adapter.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+    result = asyncio.run(OpenRouterAdapter().handle(
+        "generate_new",
+        "Tạo website thương mại điện tử bán điện thoại",
+    ))
+
+    assert result.ok
+    assert result.quality_warnings is None
+    assert len(FakeAsyncClient.requests) == 2
+    correction = FakeAsyncClient.requests[1]["messages"][-1]["content"]
+    assert "Design quality review" in correction
+    assert "product prices" in correction
+    assert result.a2ui["createSurface"]["components"][-1]["component"] == "Button"
 
 
 def test_root_only_surface_has_no_visible_content():
@@ -392,6 +678,37 @@ def test_validator_blocks_disallowed_action():
     assert "not in the allowed action set" in err
 
 
+def test_schema_validator_rejects_duplicate_parents_cycles_and_unsafe_images():
+    def create_surface(components):
+        return {
+            "version": "1.0",
+            "createSurface": {"surfaceId": "test", "components": components},
+        }
+
+    duplicate_parent = create_surface([
+        {"id": "root", "component": "Container", "children": ["left", "right"]},
+        {"id": "left", "component": "Container", "children": ["shared"]},
+        {"id": "right", "component": "Container", "children": ["shared"]},
+        {"id": "shared", "component": "Text", "props": {"text": "x"}},
+    ])
+    valid, error = A2UIValidator.validate_message(duplicate_parent)
+    assert not valid and "multiple parents" in error
+
+    cyclic = create_surface([
+        {"id": "root", "component": "Container", "children": ["section"]},
+        {"id": "section", "component": "Container", "children": ["root"]},
+    ])
+    valid, error = A2UIValidator.validate_message(cyclic)
+    assert not valid and "cycles" in error
+
+    unsafe_image = create_surface([
+        {"id": "root", "component": "Container", "children": ["image"]},
+        {"id": "image", "component": "Image", "props": {"src": "data:image/png;base64,abc"}},
+    ])
+    valid, error = A2UIValidator.validate_message(unsafe_image)
+    assert not valid and "relative or HTTP(S)" in error
+
+
 def test_validator_blocks_over_quota_components():
     components = [
         {"id": f"c{i}", "component": "Text", "props": {"text": "x"}}
@@ -454,6 +771,63 @@ def test_sse_generate_streams_live_assembly_blocks(monkeypatch):
         else:
             seen.update(c["id"] for c in payload["updateComponents"]["components"])
     assert expected_ids <= seen
+
+
+def test_sse_forwards_model_surface_before_completion(monkeypatch):
+    from backend.app.agent.model_adapters.base import LLMResult
+
+    final_message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "page-main",
+            "catalogId": "astryx-web-v1",
+            "title": "Streamed",
+            "components": [
+                {"id": "root", "component": "Container", "children": ["hero", "content"]},
+                {"id": "hero", "component": "Heading", "props": {"text": "Hello"}},
+                {"id": "content", "component": "Text", "props": {"text": "Welcome"}},
+            ],
+        },
+    }
+
+    class StreamingAdapter:
+        name = "openrouter"
+        model = "test/streaming"
+
+        async def available(self):
+            return True
+
+        async def handle(self, intent, prompt, trimmed_context=None, progress_callback=None):
+            await progress_callback({
+                "type": "a2ui",
+                "payload": {
+                    "version": "1.0",
+                    "createSurface": {
+                        "surfaceId": "page-main",
+                        "catalogId": "astryx-web-v1",
+                        "title": "Streamed",
+                        "components": [
+                            {"id": "root", "component": "Container", "children": ["hero", "content"]},
+                            {"id": "hero", "component": "Container"},
+                            {"id": "content", "component": "Container"},
+                        ],
+                    },
+                },
+            })
+            await asyncio.sleep(0.08)
+            return LLMResult(text=None, a2ui=final_message, provider=self.name)
+
+    monkeypatch.setattr(
+        "backend.app.agent.harness.orchestrator.get_adapter",
+        lambda: StreamingAdapter(),
+    )
+    events = asyncio.run(collect_stream("Tạo landing page", None, None))
+    a2ui_index = next(i for i, event in enumerate(events) if event["type"] == "a2ui")
+    completed_index = next(
+        i for i, event in enumerate(events)
+        if event["type"] == "console" and event["payload"]["message"] == "Đã nhận kết quả từ openrouter."
+    )
+    assert a2ui_index < completed_index
 
 
 def test_sse_stream_edit_emits_update_components():

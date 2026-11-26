@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image as ImageIcon } from 'lucide-react';
+import { twMerge } from 'tailwind-merge';
 import { A2UIComponentNode } from '../../a2ui/protocol/a2ui-types';
 
 interface AstryxComponentProps {
@@ -10,17 +11,34 @@ interface AstryxComponentProps {
   onUpdateDataModel?: (path: string, value: any) => void;
 }
 
+const componentClasses = (node: A2UIComponentNode, ...structural: string[]) =>
+  twMerge(
+    typeof node.props?.className === 'string' ? node.props.className : '',
+    ...structural,
+  );
+
 export const AstryxContainer: React.FC<AstryxComponentProps> = ({ node, children }) => {
   const maxWidthMap: Record<string, string> = {
     sm: 'max-w-screen-sm',
     md: 'max-w-screen-md',
     lg: 'max-w-screen-lg',
-    xl: 'max-w-screen-xl',
-    full: 'w-full',
+    xl: 'max-w-7xl',
+    full: 'max-w-none',
   };
-  const maxW = maxWidthMap[node.props?.maxWidth || 'xl'] || 'max-w-screen-xl';
+  const maxW = maxWidthMap[node.props?.maxWidth || 'xl'] || maxWidthMap.xl;
+  const paddingMap: Record<string, string> = {
+    none: 'px-0',
+    sm: 'px-4',
+    md: 'px-4 sm:px-6',
+    lg: 'px-4 sm:px-6 lg:px-8',
+  };
+  const paddingX = typeof node.props?.paddingX === 'string' ? node.props.paddingX : '';
+  const padding = paddingMap[paddingX] || '';
   return (
-    <div className={`mx-auto ${maxW} ${node.props?.className || ''}`} data-a2ui-id={node.id}>
+    <div
+      className={componentClasses(node, 'mx-auto w-full', maxW, padding)}
+      data-a2ui-id={node.id}
+    >
       {children}
     </div>
   );
@@ -40,7 +58,7 @@ export const AstryxRow: React.FC<AstryxComponentProps> = ({ node, children }) =>
     end: 'items-end',
   };
   const gapMap: Record<string, string> = {
-    sm: 'gap-2.5',
+    sm: 'gap-3',
     md: 'gap-4',
     lg: 'gap-8',
   };
@@ -49,45 +67,145 @@ export const AstryxRow: React.FC<AstryxComponentProps> = ({ node, children }) =>
   const gap = gapMap[node.props?.gap || 'md'] || 'gap-4';
 
   return (
-    <div className={`flex flex-wrap ${justify} ${align} ${gap} ${node.props?.className || ''}`} data-a2ui-id={node.id}>
+    <div className={componentClasses(node, 'flex flex-wrap min-w-0', justify, align, gap)} data-a2ui-id={node.id}>
       {children}
     </div>
   );
 };
 
 export const AstryxGrid: React.FC<AstryxComponentProps> = ({ node, children }) => {
-  const cols = node.props?.cols || 3;
-  const colCls = cols === 1 ? 'grid-cols-1' : cols === 2 ? 'grid-cols-1 md:grid-cols-2' : cols === 4 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3';
-  const gapCls = node.props?.gap === 'lg' ? 'gap-8' : node.props?.gap === 'sm' ? 'gap-3' : 'gap-6';
+  const columnClass: Record<number, string> = {
+    1: 'grid-cols-1',
+    2: 'grid-cols-2',
+    3: 'grid-cols-3',
+    4: 'grid-cols-4',
+  };
+  const requestedCols = node.props?.cols ?? 3;
+  const isValidCols = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 4;
+  const responsiveCols: Record<string, number> = {};
+  if (typeof requestedCols === 'number') {
+    const cols = isValidCols(requestedCols) ? requestedCols : 3;
+    Object.assign(responsiveCols, {
+      base: 1,
+      sm: 2,
+      lg: cols === 1 ? 1 : cols,
+    });
+  } else if (requestedCols && typeof requestedCols === 'object') {
+    responsiveCols.base = isValidCols(requestedCols.base) ? requestedCols.base : 1;
+    for (const breakpoint of ['sm', 'md', 'lg']) {
+      const value = requestedCols[breakpoint as keyof typeof requestedCols];
+      if (isValidCols(value)) responsiveCols[breakpoint] = value;
+    }
+  } else {
+    responsiveCols.base = 1;
+  }
+  const colClasses = [
+    columnClass[responsiveCols.base || 1],
+    responsiveCols.sm ? `sm:${columnClass[responsiveCols.sm]}` : '',
+    responsiveCols.md ? `md:${columnClass[responsiveCols.md]}` : '',
+    responsiveCols.lg ? `lg:${columnClass[responsiveCols.lg]}` : '',
+  ].filter(Boolean);
+  const gapMap: Record<string, string> = { sm: 'gap-3', md: 'gap-6', lg: 'gap-8' };
+  const gapCls = gapMap[node.props?.gap || 'md'] || gapMap.md;
 
   return (
-    <div className={`grid ${colCls} ${gapCls} ${node.props?.className || ''}`} data-a2ui-id={node.id}>
+    <div className={componentClasses(node, 'grid w-full min-w-0', ...colClasses, gapCls)} data-a2ui-id={node.id}>
       {children}
     </div>
   );
 };
 
 export const AstryxHeading: React.FC<AstryxComponentProps> = ({ node }) => {
-  const level = node.props?.level || 2;
-  const text = node.props?.text || '';
+  const requestedLevel = Number(node.props?.level);
+  const level = [1, 2, 3, 4].includes(requestedLevel) ? requestedLevel : 2;
+  const text = typeof node.props?.text === 'string' ? node.props.text : '';
   const Tag = `h${level}` as keyof JSX.IntrinsicElements;
-  const defaultSizes: Record<number, string> = {
-    1: 'text-4xl md:text-5xl font-semibold tracking-tight text-zinc-950 leading-tight',
-    2: 'text-2xl md:text-3xl font-semibold tracking-tight text-zinc-900',
-    3: 'text-xl font-medium tracking-tight text-zinc-900',
-    4: 'text-lg font-medium text-zinc-800',
+  const levelStyles: Record<number, string> = {
+    1: 'text-4xl md:text-5xl font-semibold tracking-tight leading-tight',
+    2: 'text-2xl md:text-3xl font-semibold tracking-tight',
+    3: 'text-xl font-medium tracking-tight',
+    4: 'text-lg font-medium',
+  };
+  const scaleStyles: Record<string, string> = {
+    sm: 'text-xl md:text-2xl',
+    md: 'text-2xl md:text-3xl',
+    lg: 'text-3xl md:text-4xl',
+    xl: 'text-4xl md:text-5xl',
+    display: 'text-5xl md:text-6xl',
+  };
+  const toneStyles: Record<string, string> = {
+    default: level === 1 ? 'text-zinc-950' : 'text-zinc-900',
+    muted: 'text-zinc-600',
+    accent: 'text-blue-700',
+    inverse: 'text-white',
+  };
+  const alignStyles: Record<string, string> = {
+    left: 'text-left',
+    center: 'text-center',
+    right: 'text-right',
+  };
+  const scale = typeof node.props?.scale === 'string' ? node.props.scale : '';
+  const tone = typeof node.props?.tone === 'string' ? node.props.tone : 'default';
+  const align = typeof node.props?.align === 'string' ? node.props.align : 'left';
+  const weight = typeof node.props?.weight === 'string' ? node.props.weight : '';
+  const weightStyles: Record<string, string> = {
+    normal: 'font-normal',
+    medium: 'font-medium',
+    semibold: 'font-semibold',
+    bold: 'font-bold',
   };
   return (
-    <Tag className={`${defaultSizes[level] || defaultSizes[2]} ${node.props?.className || ''}`} data-a2ui-id={node.id}>
+    <Tag className={componentClasses(
+      node,
+      scaleStyles[scale] || levelStyles[level],
+      weightStyles[weight] || '',
+      toneStyles[tone] || toneStyles.default,
+      alignStyles[align] || alignStyles.left,
+    )} data-a2ui-id={node.id}>
       {text}
     </Tag>
   );
 };
 
 export const AstryxText: React.FC<AstryxComponentProps> = ({ node }) => {
+  const sizeStyles: Record<string, string> = {
+    xs: 'text-xs',
+    sm: 'text-sm',
+    base: 'text-sm md:text-base',
+    lg: 'text-lg',
+    xl: 'text-xl',
+  };
+  const toneStyles: Record<string, string> = {
+    default: 'text-zinc-700',
+    muted: 'text-zinc-600',
+    accent: 'text-blue-700',
+    inverse: 'text-white',
+  };
+  const weightStyles: Record<string, string> = {
+    normal: 'font-normal',
+    medium: 'font-medium',
+    semibold: 'font-semibold',
+  };
+  const alignStyles: Record<string, string> = {
+    left: 'text-left',
+    center: 'text-center',
+    right: 'text-right',
+  };
+  const size = typeof node.props?.size === 'string' ? node.props.size : 'base';
+  const weight = typeof node.props?.weight === 'string' ? node.props.weight : 'normal';
+  const tone = typeof node.props?.tone === 'string' ? node.props.tone : 'muted';
+  const align = typeof node.props?.align === 'string' ? node.props.align : 'left';
   return (
-    <p className={`text-zinc-600 font-normal leading-relaxed text-sm md:text-base ${node.props?.className || ''}`} data-a2ui-id={node.id}>
-      {node.props?.text || ''}
+    <p className={componentClasses(
+      node,
+      sizeStyles[size] || sizeStyles.base,
+      weightStyles[weight] || 'font-normal',
+      toneStyles[tone] || toneStyles.muted,
+      alignStyles[align] || alignStyles.left,
+      'leading-relaxed',
+    )} data-a2ui-id={node.id}>
+      {typeof node.props?.text === 'string' ? node.props.text : ''}
     </p>
   );
 };
@@ -104,9 +222,9 @@ export const AstryxButton: React.FC<AstryxComponentProps> = ({ node, onAction })
     ghost: 'text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100/80 font-medium active:scale-[0.98]',
   };
   const sizes: Record<string, string> = {
-    sm: 'px-3.5 py-1.5 text-xs rounded-full',
-    md: 'px-5 py-2.5 text-sm rounded-full',
-    lg: 'px-7 py-3.5 text-base rounded-full',
+    sm: 'px-3 py-2 text-xs rounded-full',
+    md: 'px-5 py-3 text-sm rounded-full',
+    lg: 'px-7 py-4 text-base rounded-full',
   };
 
   const handleClick = () => {
@@ -118,7 +236,7 @@ export const AstryxButton: React.FC<AstryxComponentProps> = ({ node, onAction })
   return (
     <button
       onClick={handleClick}
-      className={`transition-all duration-200 cursor-pointer inline-flex items-center justify-center ${variants[variant] || variants.primary} ${sizes[size] || sizes.md} ${node.props?.className || ''}`}
+      className={componentClasses(node, 'transition-all duration-200 cursor-pointer inline-flex items-center justify-center', variants[variant] || variants.primary, sizes[size] || sizes.md)}
       data-a2ui-id={node.id}
     >
       {node.props?.label || 'Button'}
@@ -127,16 +245,23 @@ export const AstryxButton: React.FC<AstryxComponentProps> = ({ node, onAction })
 };
 
 export const AstryxCard: React.FC<AstryxComponentProps> = ({ node, children }) => {
+  const variants: Record<string, string> = {
+    default: 'rounded-2xl p-7 border border-zinc-200/90 bg-white shadow-sm hover:shadow-lg transition-all duration-300',
+    soft: 'rounded-2xl p-6 border border-zinc-100 bg-zinc-50',
+    outline: 'rounded-2xl p-6 border border-zinc-300 bg-white',
+    elevated: 'rounded-2xl p-7 border border-zinc-200 bg-white shadow-md hover:shadow-xl transition-shadow duration-300',
+  };
+  const variant = node.props?.variant || 'default';
   return (
     <div
-      className={`rounded-2xl p-7 border border-zinc-200/90 bg-white shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.07)] hover:border-zinc-300 transition-all duration-300 ${node.props?.className || ''}`}
+      className={componentClasses(node, variants[variant] || variants.default)}
       data-a2ui-id={node.id}
     >
       {node.props?.title && (
-        <h3 className="text-lg font-semibold tracking-tight text-zinc-900 mb-2">{node.props.title}</h3>
+        <h3 className="mb-2 text-lg font-semibold tracking-tight text-zinc-900">{node.props.title}</h3>
       )}
       {node.props?.description && (
-        <p className="text-sm text-zinc-600 font-normal leading-relaxed mb-4">{node.props.description}</p>
+        <p className="mb-4 text-sm font-normal leading-relaxed text-zinc-600">{node.props.description}</p>
       )}
       {children}
     </div>
@@ -146,7 +271,7 @@ export const AstryxCard: React.FC<AstryxComponentProps> = ({ node, children }) =
 export const AstryxBadge: React.FC<AstryxComponentProps> = ({ node }) => {
   return (
     <span
-      className={`inline-flex items-center px-3.5 py-1 rounded-full text-xs font-medium tracking-wide uppercase bg-zinc-100 text-zinc-800 border border-zinc-200/80 ${node.props?.className || ''}`}
+      className={componentClasses(node, 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium tracking-wide uppercase bg-zinc-100 text-zinc-800 border border-zinc-200')}
       data-a2ui-id={node.id}
     >
       {node.props?.label || ''}
@@ -172,7 +297,7 @@ export const AstryxInput: React.FC<AstryxComponentProps> = ({ node, dataModel, o
       value={dataPath ? dataModel[dataPath] ?? val : val}
       onChange={handleChange}
       placeholder={node.props?.placeholder || ''}
-      className={`w-full bg-zinc-50 border border-zinc-200 focus:border-zinc-400 focus:bg-white focus:ring-4 focus:ring-zinc-100 rounded-xl px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition duration-200 ${node.props?.className || ''}`}
+      className={componentClasses(node, 'w-full bg-zinc-50 border border-zinc-200 focus:border-zinc-400 focus:bg-white focus:ring-4 focus:ring-zinc-100 rounded-xl px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 outline-none transition duration-200')}
       data-a2ui-id={node.id}
     />
   );
@@ -181,11 +306,11 @@ export const AstryxInput: React.FC<AstryxComponentProps> = ({ node, dataModel, o
 export const AstryxMetricsCard: React.FC<AstryxComponentProps> = ({ node }) => {
   const trend = node.props?.trend;
   return (
-    <div className="bg-white border border-zinc-200/90 rounded-2xl p-6 shadow-[0_2px_10px_rgba(0,0,0,0.03)]" data-a2ui-id={node.id}>
-      <div className="text-xs uppercase tracking-wider text-zinc-500 font-medium mb-1.5">{node.props?.label || 'Metric'}</div>
+    <div className={componentClasses(node, 'bg-white border border-zinc-200/90 rounded-2xl p-6 shadow-[0_2px_10px_rgba(0,0,0,0.03)]')} data-a2ui-id={node.id}>
+      <div className="text-xs uppercase tracking-wider text-zinc-500 font-medium mb-2">{node.props?.label || 'Metric'}</div>
       <div className="text-3xl font-semibold text-zinc-950 tracking-tight">{node.props?.value || '0'}</div>
       {node.props?.change && (
-        <div className={`inline-flex items-center gap-1 text-xs mt-2.5 font-medium px-2 py-0.5 rounded-full ${
+        <div className={`inline-flex items-center gap-1 text-xs mt-3 font-medium px-2 py-1 rounded-full ${
           trend === 'up' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60' : 'text-rose-700 bg-rose-50 border border-rose-200/60'
         }`}>
           {trend === 'up' ? '↑' : '↓'} {node.props.change}
@@ -233,14 +358,14 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
   const columns: Array<{ key: string; title: string; sortable?: boolean; type?: string }> = node.props?.columns || [];
 
   return (
-    <div className="space-y-4" data-a2ui-id={node.id}>
+    <div className={componentClasses(node, 'space-y-4')} data-a2ui-id={node.id}>
       {node.props?.searchable && (
         <input
           type="text"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           placeholder="Lọc dữ liệu..."
-          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-xs text-zinc-900 outline-none focus:border-zinc-400 focus:bg-white placeholder-zinc-400 transition"
+          className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2 text-xs text-zinc-900 outline-none focus:border-zinc-400 focus:bg-white placeholder-zinc-400 transition"
         />
       )}
       <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -257,7 +382,7 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
                       setPage(1);
                     }
                   }}
-                  className={`px-4 py-3.5 text-left font-medium text-zinc-600 uppercase tracking-wider ${col.sortable ? 'cursor-pointer hover:text-zinc-900 select-none' : ''}`}
+                  className={`px-4 py-4 text-left font-medium text-zinc-600 uppercase tracking-wider ${col.sortable ? 'cursor-pointer hover:text-zinc-900 select-none' : ''}`}
                 >
                   {col.title}
                   {sortKey === col.key && <span className="ml-1 text-zinc-900">{sortAsc ? '↑' : '↓'}</span>}
@@ -269,9 +394,9 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
             {pagedRecords.map((row, i) => (
               <tr key={i} className="hover:bg-zinc-50/70 transition">
                 {columns.map(col => (
-                  <td key={col.key} className="px-4 py-3.5 text-zinc-700 font-normal">
+                  <td key={col.key} className="px-4 py-4 text-zinc-700 font-normal">
                     {col.type === 'badge' ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80">
+                      <span className="px-2 py-1 rounded-full text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
                         {row[col.key]}
                       </span>
                     ) : (
@@ -292,11 +417,11 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
           <span>
             {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, records.length)} / {records.length} bản ghi
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={safePage === 1}
-              className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              className="px-3 py-2 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
             >
               Trước
             </button>
@@ -304,7 +429,7 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={safePage === totalPages}
-              className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              className="px-3 py-2 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
             >
               Sau
             </button>
@@ -316,28 +441,62 @@ export const AstryxDataTable: React.FC<AstryxComponentProps> = ({ node, dataMode
 };
 
 export const AstryxImage: React.FC<AstryxComponentProps> = ({ node }) => {
-  const src = String(node.props?.src || '');
+  const rawSrc = typeof node.props?.src === 'string' ? node.props.src.trim() : '';
+  const isHttpUrl = /^https?:\/\//i.test(rawSrc);
+  const isRelativePath = /^(?!\/\/)(?:\/|\.\/|\.\.\/)/.test(rawSrc);
+  const src = isHttpUrl || isRelativePath ? rawSrc : '';
   const alt = String(node.props?.alt || '');
   const ratio = node.props?.ratio;
-  const ratioCls = ratio === 'wide' ? 'aspect-[2/1]' : ratio === 'tall' ? 'aspect-[3/4]' : 'aspect-video';
-  if (src) {
+  const ratioCls = ratio === 'wide'
+    ? 'aspect-[2/1]'
+    : ratio === 'tall'
+      ? 'aspect-[3/4]'
+      : ratio === 'square'
+        ? 'aspect-square'
+        : 'aspect-video';
+  const fitStyles: Record<string, string> = {
+    cover: 'object-cover',
+    contain: 'object-contain',
+  };
+  const positionStyles: Record<string, string> = {
+    center: 'object-center',
+    top: 'object-top',
+    bottom: 'object-bottom',
+    left: 'object-left',
+    right: 'object-right',
+  };
+  const fit = typeof node.props?.fit === 'string' ? node.props.fit : 'cover';
+  const position = typeof node.props?.position === 'string' ? node.props.position : 'center';
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => setImageFailed(false), [src]);
+  if (src && !imageFailed) {
     return (
       <div
-        className={`overflow-hidden rounded-2xl border border-zinc-200/80 bg-zinc-50 ${ratioCls} ${node.props?.className || ''}`}
+        className={componentClasses(node, 'overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50', ratioCls)}
         data-a2ui-id={node.id}
       >
-        <img src={src} alt={alt} className="h-full w-full object-cover" loading="lazy" />
+        <img
+          src={src}
+          alt={alt}
+          className={twMerge(
+            'h-full w-full',
+            fitStyles[fit] || fitStyles.cover,
+            positionStyles[position] || positionStyles.center,
+          )}
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+        />
       </div>
     );
   }
   // No src: Apple-style placeholder tile so layouts with image slots stay balanced.
   return (
     <div
-      className={`flex items-center justify-center rounded-2xl border border-zinc-200/80 bg-zinc-100/60 ${ratioCls} ${node.props?.className || ''}`}
+      className={componentClasses(node, 'flex items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-100', ratioCls)}
       data-a2ui-id={node.id}
     >
       <ImageIcon className="h-6 w-6 text-zinc-400" aria-hidden />
-      {alt && <span className="ml-2.5 text-xs font-medium text-zinc-500">{alt}</span>}
+      {alt && <span className="ml-3 text-xs font-medium text-zinc-500">{alt}</span>}
     </div>
   );
 };

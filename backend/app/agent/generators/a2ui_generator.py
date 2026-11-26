@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from ..model_adapters.base import LLMResult, ModelAdapter, make_trimmed_context
+from ..model_adapters.base import LLMResult, ModelAdapter, ProgressCallback, make_trimmed_context
 from ..model_adapters.registry import get_adapter, get_deterministic_adapter
 from ..planners.ui_planner import UIPlanner
 from ..validators.a2ui_validator import A2UIValidator
@@ -19,10 +19,14 @@ class A2UIGenerator:
         current_surface_id: Optional[str] = None,
         current_surface_summary: Optional[Dict[str, Any]] = None,
         adapter: Optional[ModelAdapter] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> LLMResult:
         context = make_trimmed_context(current_surface_id, current_surface_summary)
         adapter = adapter or get_adapter()
-        result = await adapter.handle(intent, prompt, context)
+        if progress_callback is None:
+            result = await adapter.handle(intent, prompt, context)
+        else:
+            result = await adapter.handle(intent, prompt, context, progress_callback)
 
         # --- Sanitize + Validate LLM output ---
         if result.ok and result.a2ui is not None:

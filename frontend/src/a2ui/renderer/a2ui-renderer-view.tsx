@@ -25,6 +25,9 @@ export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
   onUpdateDataModel,
   isGenerating = false,
 }) => {
+  const rootNode = surface.rootId ? surface.components[surface.rootId] : undefined;
+  const sectionIds = new Set(rootNode?.children || []);
+
   const renderNode = (nodeId: ComponentId): React.ReactNode => {
     const node: A2UIComponentNode | undefined = surface.components[nodeId];
     if (!node) return null;
@@ -37,6 +40,7 @@ export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
     // has not received its children block yet renders a shimmer placeholder.
     const isPendingSection =
       isGenerating &&
+      sectionIds.has(node.id) &&
       node.component === 'Container' &&
       (node.children === undefined || node.children.length === 0);
 
@@ -80,10 +84,11 @@ export const A2UIRendererView: React.FC<A2UIRendererProps> = ({
           e.stopPropagation();
           onSelectComponent(node.id);
         }}
-        className={`relative transition-all duration-150 ${
+        data-a2ui-wrapper={node.id}
+        className={`relative min-w-0 transition-all duration-150 ${
           isSelected
-            ? 'ring-2 ring-zinc-950 ring-offset-2 ring-offset-white rounded-2xl'
-            : 'hover:outline hover:outline-1 hover:outline-zinc-300 rounded-2xl'
+            ? 'ring-2 ring-zinc-950 ring-offset-2 ring-offset-white'
+            : 'hover:outline hover:outline-1 hover:outline-zinc-300'
         }`}
       >
         {isSelected && (

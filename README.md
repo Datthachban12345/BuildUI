@@ -11,6 +11,7 @@ An AI-driven website and interactive UI generation studio built on the **A2UI v1
 │                    AGENT HARNESS (Host Backend)              │
 │  - FastAPI / Python Coordinator                              │
 │  - LLM Orchestrator (Intent Router, Planner, Context Builder) │
+│  - OpenRouter token stream → partial A2UI component updates  │
 │  - Protocol Serializer (A2UI v1.0 Generator & Validator)     │
 │  - Reactive SSE Streaming Endpoint (`/api/agent/stream-ui`)  │
 └──────────────┬────────────────────────────────┬──────────────┘

@@ -62,7 +62,11 @@ async def agent_chat(req: ChatRequest):
             current_surface_id=req.current_surface_id,
             current_surface_summary=req.current_surface_summary
         ),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 @app.get("/api/fixtures/{name}")

@@ -67,14 +67,36 @@ class AgentOrchestrator:
         else:
             yield _sse_event("text", "Đang chuẩn bị câu trả lời... ")
 
+        streamed_surface = False
         try:
-            result = await A2UIGenerator.handle_intent(
+            progress_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+            async def report_progress(event: Dict[str, Any]) -> None:
+                await progress_queue.put(event)
+
+            task = asyncio.create_task(A2UIGenerator.handle_intent(
                 intent=intent,
                 prompt=prompt,
                 current_surface_id=current_surface_id,
                 current_surface_summary=context,
                 adapter=adapter,
-            )
+                progress_callback=report_progress,
+            ))
+            while not task.done():
+                try:
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
+                except asyncio.TimeoutError:
+                    continue
+                if event["type"] == "a2ui" and "createSurface" in event.get("payload", {}):
+                    streamed_surface = True
+                yield _sse_event(event["type"], event["payload"])
+
+            result = await task
+            while not progress_queue.empty():
+                event = progress_queue.get_nowait()
+                if event["type"] == "a2ui" and "createSurface" in event.get("payload", {}):
+                    streamed_surface = True
+                yield _sse_event(event["type"], event["payload"])
         except Exception as exc:
             logger.exception("Agent stream failed while handling intent=%s", intent)
             yield _sse_event("console", {
@@ -96,6 +118,12 @@ class AgentOrchestrator:
                 "level": "success" if result.ok else "error",
                 "message": f"Đã nhận kết quả từ {result.provider}.",
             })
+        if result.quality_warnings:
+            yield _sse_event("console", {
+                "level": "warning",
+                "message": "Model vẫn còn thiếu một số tiêu chí bố cục sau các lần tự sửa.",
+                "data": result.quality_warnings,
+            })
 
         response_data = result.text if result.text is not None else result.a2ui
         if response_data is not None:
@@ -112,7 +140,9 @@ class AgentOrchestrator:
             valid, error = A2UIValidator.validate_message(result.a2ui)
             if valid:
                 blocks = chunk_create_surface(result.a2ui)
-                if intent == "generate_new" and len(blocks) > 1:
+                if streamed_surface:
+                    yield _sse_event("a2ui", result.a2ui)
+                elif intent == "generate_new" and len(blocks) > 1:
                     # Swarm Live Assembly: ship the skeleton first so the canvas
                     # mounts immediately, then stream each section block.
                     yield _sse_event("console", {

@@ -160,6 +160,17 @@ def _sanitize_component_list(
             continue  # skip non-dict items (nulls, strings, etc.)
 
         node = dict(comp)
+        raw_props = node.get("props")
+        if isinstance(raw_props, dict) and "children" in raw_props:
+            if not isinstance(node.get("children"), list):
+                children_from_props = raw_props["children"]
+                if isinstance(children_from_props, (str, dict)):
+                    children_from_props = [children_from_props]
+                node["children"] = children_from_props
+            node["props"] = {
+                key: value for key, value in raw_props.items()
+                if key != "children"
+            }
 
         # 4a. Fix component key aliases ("type" → "component", etc.)
         if "component" not in node or node.get("component") is None:

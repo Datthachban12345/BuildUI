@@ -2,11 +2,14 @@ import os
 import json
 import asyncio
 import httpx
+import re
 from typing import Any, Dict, List, Optional
 
-from .base import LLMResult, ModelAdapter
+from .base import LLMResult, ModelAdapter, ProgressCallback
 from ..prompts.apple_designer import AppleDesignerPrompt
+from ..sanitizers import sanitize_message
 from ..validators.a2ui_validator import ASTRYX_ALLOWED_COMPONENTS
+from ..validators.design_validator import assess_design_quality
 
 # UI-producing intents must return an A2UI envelope; the free model pool picks
 # an upstream model at random, so we retry with a corrective prompt when it
@@ -168,13 +171,20 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         if node_type is None and node_id == "root":
             node_type = "Container"
         raw_children = component.get("children")
+        if not isinstance(raw_children, list):
+            raw_children = props.get("children")
+            if isinstance(raw_children, str):
+                raw_children = [raw_children]
         children = raw_children if isinstance(raw_children, list) else []
+        props.pop("children", None)
         broken = (
             not isinstance(node_id, str) or not node_id
             or node_type is None
         )
         if not broken:
             normalized = {**component, "component": node_type, "props": props}
+            if isinstance(raw_children, list):
+                normalized["children"] = raw_children
             if node_type in ("Heading", "Text"):
                 text = props.get("text") or component.get("text") or component.get("content") or component.get("label")
                 if text is not None:
@@ -183,8 +193,18 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
                 props.setdefault("src", component.get("src") or component.get("imageUrl") or component.get("url") or component.get("image") or "")
                 props.setdefault("alt", component.get("alt") or component.get("title") or "")
             elif node_type == "Card":
-                props.setdefault("title", component.get("title") or component.get("name") or component.get("label") or component.get("productName"))
-                props.setdefault("description", component.get("description") or component.get("text") or component.get("content") or "")
+                title = (
+                    component.get("title") or component.get("name")
+                    or component.get("label") or component.get("productName")
+                    or props.get("name")
+                )
+                if title is not None:
+                    props.setdefault("title", title)
+                props.setdefault(
+                    "description",
+                    component.get("description") or component.get("text")
+                    or component.get("content") or props.get("description") or "",
+                )
             elif node_type == "Button":
                 props.setdefault("label", component.get("label") or component.get("text") or component.get("title") or "Xem thêm")
             if node_id not in nodes:
@@ -263,6 +283,53 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         root_children = root_node.setdefault("children", [])
         root_node["children"] = list(dict.fromkeys(root_children + top_level_ids))
 
+    # `children` is the canonical tree edge. If a model also listed every node
+    # under root, prefer the more specific nested parent and remove duplicate
+    # edges/cycles before schema validation.
+    by_id = {component["id"]: component for component in components}
+    root_node = by_id["root"]
+    parent_by_child: Dict[str, str] = {}
+    for parent in components:
+        for child_id in parent.get("children") or []:
+            if child_id not in by_id or child_id == "root":
+                continue
+            current_parent = parent_by_child.get(child_id)
+            if current_parent is None or (
+                current_parent == "root" and parent["id"] != "root"
+            ):
+                parent_by_child[child_id] = parent["id"]
+
+    visited: set[str] = set()
+
+    def normalize_branch(parent_id: str) -> None:
+        if parent_id in visited:
+            return
+        visited.add(parent_id)
+        node = by_id[parent_id]
+        normalized_children: List[str] = []
+        for child_id in node.get("children") or []:
+            if (
+                child_id not in by_id
+                or child_id == parent_id
+                or child_id in visited
+                or parent_by_child.get(child_id) != parent_id
+            ):
+                continue
+            normalized_children.append(child_id)
+            normalize_branch(child_id)
+        node["children"] = normalized_children
+
+    normalize_branch("root")
+    for node in components:
+        node_id = node["id"]
+        if node_id in visited:
+            continue
+        root_children = root_node.setdefault("children", [])
+        if node_id not in root_children:
+            root_children.append(node_id)
+        parent_by_child[node_id] = "root"
+        normalize_branch(node_id)
+
     surface_id = surface.get("surfaceId")
     if not isinstance(surface_id, str) or not surface_id:
         surface_id = "page-main"
@@ -334,6 +401,112 @@ def _strip_code_fences(raw: str) -> str:
     return raw.strip()
 
 
+def _extract_complete_component_objects(raw: str) -> List[Dict[str, Any]]:
+    """Extract complete top-level component objects from a partial JSON stream."""
+    surface_match = re.search(r'"createSurface"\s*:\s*\{', raw)
+    if not surface_match:
+        return []
+    components_match = re.search(r'"components"\s*:\s*\[', raw[surface_match.end():])
+    if not components_match:
+        return []
+
+    start = surface_match.end() + components_match.end()
+    objects: List[Dict[str, Any]] = []
+    object_start: Optional[int] = None
+    object_depth = 0
+    in_string = False
+    escaped = False
+
+    for index in range(start, len(raw)):
+        char = raw[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if object_depth == 0:
+                object_start = index
+            object_depth += 1
+        elif char == "}":
+            object_depth -= 1
+            if object_depth == 0 and object_start is not None:
+                try:
+                    value = json.loads(raw[object_start:index + 1])
+                except json.JSONDecodeError:
+                    object_start = None
+                    continue
+                if isinstance(value, dict):
+                    objects.append(value)
+                object_start = None
+        elif char == "]" and object_depth == 0:
+            break
+    return objects
+
+
+def _partial_surface_string(raw: str, field: str, default: str) -> str:
+    surface_match = re.search(r'"createSurface"\s*:\s*\{', raw)
+    if not surface_match:
+        return default
+    match = re.search(
+        rf'"{re.escape(field)}"\s*:\s*("(?:\\.|[^"\\])*")',
+        raw[surface_match.end():],
+    )
+    if not match:
+        return default
+    try:
+        value = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return default
+    return value if isinstance(value, str) and value else default
+
+
+def _partial_create_surface(
+    raw: str,
+    parsed_components: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    known_ids: set[str] = set()
+    referenced_ids: set[str] = set()
+
+    def collect(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        node_id = node.get("id")
+        if isinstance(node_id, str) and node_id:
+            known_ids.add(node_id)
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, str):
+                    referenced_ids.add(child)
+                elif isinstance(child, dict):
+                    collect(child)
+
+    for component in parsed_components:
+        collect(component)
+
+    placeholders = [
+        {"id": node_id, "component": "Container", "props": {}}
+        for node_id in sorted(referenced_ids - known_ids)
+    ]
+    return sanitize_message(_normalize_create_surface({
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": _partial_surface_string(raw, "surfaceId", "page-main"),
+            "catalogId": _partial_surface_string(raw, "catalogId", "astryx-web-v1"),
+            "title": _partial_surface_string(raw, "title", "Generating page"),
+            "components": parsed_components + placeholders,
+            "dataModel": {},
+        },
+    }))
+
+
 class OpenRouterAdapter(ModelAdapter):
     """Gateway adapter: reach OpenAI / Claude / Gemini model IDs through one key.
 
@@ -357,7 +530,13 @@ class OpenRouterAdapter(ModelAdapter):
     async def available(self) -> bool:
         return bool(self.api_key)
 
-    async def handle(self, intent: str, prompt: str, trimmed_context: Optional[Dict[str, Any]] = None) -> LLMResult:
+    async def handle(
+        self,
+        intent: str,
+        prompt: str,
+        trimmed_context: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> LLMResult:
         if not await self.available():
             return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error="OPENROUTER_API_KEY missing")
 
@@ -373,6 +552,8 @@ class OpenRouterAdapter(ModelAdapter):
             "X-Title": "BuildUI Agent Harness",
         }
         last_error = "unknown"
+        best_quality_candidate: Optional[Dict[str, Any]] = None
+        best_quality_warnings: Optional[List[str]] = None
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             body: Dict[str, Any] = {
@@ -380,25 +561,111 @@ class OpenRouterAdapter(ModelAdapter):
                 "messages": history,
                 "temperature": 0.4,
                 "response_format": {"type": "json_object"},
+                "stream": True,
             }
             if self.max_tokens:
                 body["max_tokens"] = self.max_tokens
             try:
+                streamed_raw = ""
+                streamed_reasoning = ""
+                parsed_components: List[Dict[str, Any]] = []
+                previous_nodes: Dict[str, Dict[str, Any]] = {}
+                progress_started = False
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    res = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=body,
+                    ) as res:
+                        if res.status_code != 200:
+                            response_body = (await res.aread()).decode("utf-8", errors="replace")
+                        else:
+                            response_body = ""
+                            async for line in res.aiter_lines():
+                                if not line.startswith("data:"):
+                                    if not streamed_raw and line.lstrip().startswith("{"):
+                                        try:
+                                            non_stream_payload = json.loads(line)
+                                        except json.JSONDecodeError:
+                                            continue
+                                        non_stream_content = _extract_completion_content(non_stream_payload)
+                                        if non_stream_content:
+                                            streamed_raw = non_stream_content
+                                    continue
+                                data = line[5:].strip()
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                except json.JSONDecodeError:
+                                    continue
+                                choices = chunk.get("choices")
+                                if not isinstance(choices, list) or not choices:
+                                    continue
+                                choice = choices[0]
+                                delta = choice.get("delta") if isinstance(choice, dict) else None
+                                if not isinstance(delta, dict) and isinstance(choice, dict):
+                                    message = choice.get("message")
+                                    content = _extract_completion_content({"choices": [{"message": message}]})
+                                    if content:
+                                        streamed_raw += content
+                                    continue
+                                if not isinstance(delta, dict):
+                                    continue
+                                content = delta.get("content")
+                                if isinstance(content, str) and content:
+                                    streamed_raw += content
+                                    if intent == "generate_new" and progress_callback:
+                                        completed = _extract_complete_component_objects(streamed_raw)
+                                        if len(completed) > len(parsed_components):
+                                            parsed_components = completed
+                                            partial = _partial_create_surface(streamed_raw, parsed_components)
+                                            partial_components = partial["createSurface"]["components"]
+                                            current_nodes = {
+                                                component["id"]: component
+                                                for component in partial_components
+                                            }
+                                            if "root" in current_nodes:
+                                                if not progress_started:
+                                                    await progress_callback({
+                                                        "type": "a2ui",
+                                                        "payload": partial,
+                                                    })
+                                                    progress_started = True
+                                                else:
+                                                    changed = [
+                                                        component for node_id, component in current_nodes.items()
+                                                        if previous_nodes.get(node_id) != component
+                                                    ]
+                                                    if changed:
+                                                        await progress_callback({
+                                                            "type": "a2ui",
+                                                            "payload": {
+                                                                "version": "1.0",
+                                                                "updateComponents": {
+                                                                    "surfaceId": partial["createSurface"]["surfaceId"],
+                                                                    "components": changed,
+                                                                },
+                                                            },
+                                                        })
+                                            previous_nodes = current_nodes
+                                reasoning = delta.get("reasoning")
+                                if isinstance(reasoning, str):
+                                    streamed_reasoning += reasoning
             except httpx.HTTPError as exc:
                 last_error = f"network error: {exc}"
                 await asyncio.sleep(2 * attempt)
                 continue
 
             if res.status_code == 429 or res.status_code >= 500:
-                last_error = f"HTTP {res.status_code}: {res.text[:200]}"
+                last_error = f"HTTP {res.status_code}: {response_body[:200]}"
                 await asyncio.sleep(2 * attempt)
                 continue
             if res.status_code != 200:
-                return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error=f"HTTP {res.status_code}: {res.text[:200]}")
+                return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error=f"HTTP {res.status_code}: {response_body[:200]}")
 
-            raw = _extract_completion_content(res.json())
+            raw = streamed_raw or streamed_reasoning or None
             if raw is None:
                 last_error = "OpenRouter returned an empty completion (likely token cap)"
                 history.append(self._corrective_turn(last_error))
@@ -427,16 +694,35 @@ class OpenRouterAdapter(ModelAdapter):
                             "empty layout containers; add real Heading/Text/Button/Card "
                             "content in each section"))
                         continue
+                    if intent == "generate_new":
+                        quality_warnings = assess_design_quality(parsed, prompt)
+                        if quality_warnings:
+                            if (
+                                best_quality_warnings is None
+                                or len(quality_warnings) < len(best_quality_warnings)
+                            ):
+                                best_quality_candidate = parsed
+                                best_quality_warnings = quality_warnings
+                            last_error = "Design quality review: " + "; ".join(quality_warnings)
+                            history.append(self._corrective_turn(last_error, raw))
+                            continue
                 return LLMResult(text=None, a2ui=parsed, provider=self.name)
 
             last_error = "Model output is not a valid A2UI v1.0 envelope"
             history.append(self._corrective_turn(last_error, raw))
 
+        if best_quality_candidate is not None:
+            return LLMResult(
+                text=None,
+                a2ui=best_quality_candidate,
+                provider=self.name,
+                quality_warnings=best_quality_warnings,
+            )
         return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error=last_error)
 
     def _corrective_turn(self, reason: str, offending: Optional[str] = None) -> Dict[str, str]:
         message = (
-            "Your previous output was not a valid A2UI v1.0 envelope "
+            "Your previous output needs correction "
             f"({reason}). Re-output ONLY a single JSON object with \"version\":\"1.0\" and exactly "
             "one of the keys createSurface, updateComponents, or updateDataModel. No prose, no markdown."
         )

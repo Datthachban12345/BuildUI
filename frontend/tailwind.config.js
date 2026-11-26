@@ -19,7 +19,7 @@ const accents = [
 ];
 const colors = [...zinc, ...accents];
 
-const spacing = ['0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '5', '6', '7', '8', '9', '10', '12', '14', '16', '20', '24', '28', '32', '36', '40', '44', '48'];
+const spacing = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '12', '14', '16', '20', '24', '28', '32', '36', '40', '44', '48'];
 
 const safelist = [];
 
@@ -72,14 +72,16 @@ safelist.push(
   'items-start', 'items-center', 'items-end',
   'justify-start', 'justify-center', 'justify-end', 'justify-between', 'justify-around',
   'w-full', 'h-full', 'h-auto', 'w-auto', 'w-fit',
-  'max-w-sm', 'max-w-md', 'max-w-lg', 'max-w-xl', 'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'max-w-7xl', 'max-w-full', 'max-w-screen-sm', 'max-w-screen-md', 'max-w-screen-lg', 'max-w-screen-xl', 'max-w-3xl',
+  'max-w-sm', 'max-w-md', 'max-w-lg', 'max-w-xl', 'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'max-w-7xl', 'max-w-full', 'max-w-none', 'max-w-screen-sm', 'max-w-screen-md', 'max-w-screen-lg', 'max-w-screen-xl',
   'mx-auto', 'my-auto', 'isolate', 'z-0', 'z-10', 'z-20', 'z-50', 'z-auto',
 );
 
 // Grid
 safelist.push(
   'grid-cols-1', 'grid-cols-2', 'grid-cols-3', 'grid-cols-4', 'grid-cols-5', 'grid-cols-6',
-  'md:grid-cols-1', 'md:grid-cols-2', 'md:grid-cols-3', 'lg:grid-cols-1', 'lg:grid-cols-2', 'lg:grid-cols-3', 'lg:grid-cols-4',
+  'sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3', 'sm:grid-cols-4',
+  'md:grid-cols-1', 'md:grid-cols-2', 'md:grid-cols-3', 'md:grid-cols-4',
+  'lg:grid-cols-1', 'lg:grid-cols-2', 'lg:grid-cols-3', 'lg:grid-cols-4',
   'md:flex-row', 'md:flex-col',
 );
 

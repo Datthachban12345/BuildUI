@@ -9,7 +9,10 @@ never touching the orchestrator.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+
+ProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 @dataclass
@@ -26,6 +29,7 @@ class LLMResult:
     ok: bool = True
     error: Optional[str] = None
     fallback_reason: Optional[str] = None
+    quality_warnings: Optional[List[str]] = None
 
 
 class ModelAdapter(ABC):
@@ -43,6 +47,7 @@ class ModelAdapter(ABC):
         intent: str,
         prompt: str,
         trimmed_context: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> LLMResult:
         """Execute the task for the given intent. Must never raise - return ok=False instead."""
 

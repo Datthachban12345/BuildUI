@@ -7,10 +7,35 @@ export type A2UIVersion = "1.0";
 export type ComponentId = string;
 export type SurfaceId = string;
 
+export type GridColumns = 1 | 2 | 3 | 4;
+export interface ResponsiveGridColumns {
+  base?: GridColumns;
+  sm?: GridColumns;
+  md?: GridColumns;
+  lg?: GridColumns;
+}
+
+export interface A2UIComponentProps extends Record<string, any> {
+  className?: string;
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "full";
+  paddingX?: "none" | "sm" | "md" | "lg";
+  cols?: GridColumns | ResponsiveGridColumns;
+  gap?: "sm" | "md" | "lg";
+  scale?: "sm" | "md" | "lg" | "xl" | "display";
+  size?: "xs" | "sm" | "base" | "md" | "lg" | "xl";
+  weight?: "normal" | "medium" | "semibold" | "bold";
+  tone?: "default" | "muted" | "accent" | "inverse";
+  align?: "left" | "center" | "right";
+  variant?: "default" | "soft" | "outline" | "elevated" | "primary" | "secondary" | "ghost";
+  ratio?: "wide" | "tall" | "square";
+  fit?: "cover" | "contain";
+  position?: "center" | "top" | "bottom" | "left" | "right";
+}
+
 export interface A2UIComponentNode {
   id: ComponentId;
   component: string;
-  props?: Record<string, any>;
+  props?: A2UIComponentProps;
   children?: ComponentId[];
 }
 

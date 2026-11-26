@@ -9,6 +9,80 @@ import {
  * A2UI v1.0 Pure Message Processor
  */
 export class A2UIRuntime {
+  private static normalizeComponentTree(
+    components: A2UIComponentNode[]
+  ): { components: Record<ComponentId, A2UIComponentNode>; rootId: ComponentId | null } {
+    const nodes: Record<ComponentId, A2UIComponentNode> = {};
+    for (const component of components) {
+      if (!component || typeof component.id !== 'string' || !component.id || nodes[component.id]) continue;
+      const props = component.props && typeof component.props === 'object'
+        ? { ...component.props }
+        : {};
+      const rawChildren = Array.isArray(component.children)
+        ? component.children
+        : props.children;
+      delete props.children;
+      nodes[component.id] = {
+        ...component,
+        props,
+        children: Array.isArray(rawChildren)
+          ? [...new Set(rawChildren.filter((child): child is string => typeof child === 'string'))]
+          : typeof rawChildren === 'string'
+            ? [rawChildren]
+            : [],
+      };
+    }
+
+    if (!Object.keys(nodes).length) return { components: nodes, rootId: null };
+
+    const referenced = new Set<string>();
+    for (const node of Object.values(nodes)) {
+      for (const childId of node.children || []) {
+        if (nodes[childId]) referenced.add(childId);
+      }
+    }
+    const rootId = nodes.root
+      ? 'root'
+      : Object.keys(nodes).find((id) => !referenced.has(id)) || Object.keys(nodes)[0];
+
+    const parentByChild: Record<string, string> = {};
+    for (const [parentId, node] of Object.entries(nodes)) {
+      for (const childId of node.children || []) {
+        if (!nodes[childId] || childId === rootId) continue;
+        const existingParent = parentByChild[childId];
+        if (!existingParent || (existingParent === rootId && parentId !== rootId)) {
+          parentByChild[childId] = parentId;
+        }
+      }
+    }
+
+    const visited = new Set<string>();
+    const normalizeBranch = (parentId: string): void => {
+      if (visited.has(parentId)) return;
+      visited.add(parentId);
+      const node = nodes[parentId];
+      const normalizedChildren: string[] = [];
+      for (const childId of node.children || []) {
+        if (!nodes[childId] || childId === parentId || visited.has(childId)) continue;
+        if (parentByChild[childId] !== parentId) continue;
+        normalizedChildren.push(childId);
+        normalizeBranch(childId);
+      }
+      node.children = normalizedChildren;
+    };
+
+    normalizeBranch(rootId);
+    for (const id of Object.keys(nodes)) {
+      if (visited.has(id)) continue;
+      const root = nodes[rootId];
+      root.children = [...(root.children || []), id];
+      parentByChild[id] = rootId;
+      normalizeBranch(id);
+    }
+
+    return { components: nodes, rootId };
+  }
+
   /**
    * Applies an A2UI protocol message to the current surface state
    */
@@ -24,22 +98,14 @@ export class A2UIRuntime {
     // 1. createSurface
     if ('createSurface' in message) {
       const payload = message.createSurface;
-      const componentMap: Record<ComponentId, A2UIComponentNode> = {};
-      let rootId: ComponentId | null = null;
-
-      for (const comp of payload.components) {
-        componentMap[comp.id] = comp;
-        if (comp.id === 'root' || (!rootId && !payload.components.some(c => c.children?.includes(comp.id)))) {
-          rootId = comp.id;
-        }
-      }
+      const { components, rootId } = this.normalizeComponentTree(payload.components);
 
       return {
         surfaceId: payload.surfaceId,
         title: payload.title || 'Untitled Surface',
         catalogId: payload.catalogId,
-        components: componentMap,
-        rootId: rootId || (payload.components[0]?.id ?? null),
+        components,
+        rootId,
         dataModel: payload.dataModel || {},
       };
     }
@@ -55,10 +121,12 @@ export class A2UIRuntime {
       for (const comp of payload.components) {
         updatedMap[comp.id] = comp;
       }
+      const normalized = this.normalizeComponentTree(Object.values(updatedMap));
 
       return {
         ...currentState,
-        components: updatedMap,
+        components: normalized.components,
+        rootId: normalized.rootId,
       };
     }
 

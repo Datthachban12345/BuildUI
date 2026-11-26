@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from .base import LLMResult, ModelAdapter
+from .base import LLMResult, ModelAdapter, ProgressCallback
 from ..generators.deterministic_payloads import generate_deterministic, generate_edit_delta
 
 
@@ -12,7 +12,13 @@ class DeterministicAdapter(ModelAdapter):
     async def available(self) -> bool:
         return True
 
-    async def handle(self, intent: str, prompt: str, trimmed_context: Optional[Dict[str, Any]] = None) -> LLMResult:
+    async def handle(
+        self,
+        intent: str,
+        prompt: str,
+        trimmed_context: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> LLMResult:
         if intent == "generate_new":
             return LLMResult(text=None, a2ui=generate_deterministic(prompt), provider=self.name)
         if intent == "edit_section":
