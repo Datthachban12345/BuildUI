@@ -59,7 +59,7 @@ def test_ui_planner():
     intent1 = UIPlanner.classify_intent("Tạo một website bán trà sữa", has_existing_surface=False)
     assert intent1 == "generate_new"
 
-    intent2 = UIPlanner.classify_intent("Đổi màu tiêu đề sang tím", has_existing_surface=True)
+    intent2 = UIPlanner.classify_intent("Đổi theme sang tím", has_existing_surface=True)
     assert intent2 == "change_theme"
 
     intent3 = UIPlanner.classify_intent("Sửa tiêu đề hero cho sang trọng hơn", has_existing_surface=True)
@@ -69,7 +69,8 @@ def test_ui_planner():
     assert intent4 == "chat_inquiry"
 
     steps = UIPlanner.create_generation_plan("Tạo portfolio chụp ảnh tối giản")
-    assert len(steps) >= 7
+    assert len(steps) >= 4
+    assert not any("bảng giá" in step.lower() or "form liên hệ" in step.lower() for step in steps)
 
 def test_deterministic_generator_validity():
     landing_msg = A2UIGenerator.generate_deterministic("Tạo landing page cho studio ảnh")

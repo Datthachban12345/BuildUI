@@ -56,6 +56,12 @@ def _validate_spacing_tokens(component_id: str, class_name: str) -> Optional[str
 
 def _validate_component_props(component: Dict[str, Any]) -> Optional[str]:
     component_id = component.get("id", "<unknown>")
+    if "className" in component:
+        return (
+            f"Component '{component_id}' className must be inside props; "
+            "props.className is the canonical A2UI location"
+        )
+    component_type = component.get("component")
     props = component.get("props", {})
     if not isinstance(props, dict):
         return f"Component '{component_id}' props must be an object"
@@ -67,8 +73,13 @@ def _validate_component_props(component: Dict[str, Any]) -> Optional[str]:
         spacing_error = _validate_spacing_tokens(component_id, props["className"])
         if spacing_error:
             return spacing_error
+        if component_type == "Container":
+            class_tokens = [token.split(":")[-1] for token in props["className"].split()]
+            if "maxWidth" in props and any(token.startswith("max-w-") for token in class_tokens):
+                return f"Component '{component_id}' must not combine maxWidth with max-w-* in className"
+            if "paddingX" in props and any(token.startswith("px-") for token in class_tokens):
+                return f"Component '{component_id}' must not combine paddingX with px-* in className"
 
-    component_type = component.get("component")
     string_props = {
         "Heading": ("text",),
         "Text": ("text",),

@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, Optional
 
 from .base import LLMResult, ModelAdapter, ProgressCallback
@@ -42,4 +43,19 @@ class DeterministicAdapter(ModelAdapter):
                     "operation": "merge",
                 },
             }, provider=self.name)
+        if intent == "chat_inquiry":
+            normalized = prompt.lower()
+            is_greeting = (
+                any(word in normalized for word in ("xin chào", "chào bạn", "chào"))
+                or re.search(r"\b(?:hello|hi|hey)\b", normalized) is not None
+            )
+            if is_greeting:
+                text = "Xin chào! Mình có thể trò chuyện, giải đáp câu hỏi hoặc giúp bạn tạo và chỉnh sửa giao diện."
+            elif any(word in normalized for word in ("cảm ơn", "cam on", "thanks", "thank you")):
+                text = "Rất vui được giúp bạn!"
+            elif any(word in normalized for word in ("bạn có thể làm gì", "bạn làm được gì", "bạn giúp được gì", "what can you do")):
+                text = "Mình có thể trả lời câu hỏi, tạo website mới, chỉnh sửa giao diện hiện có và đổi theme."
+            else:
+                text = "Mình đang chạy ở chế độ offline. Bạn có thể hỏi thêm hoặc mô tả giao diện muốn tạo hay chỉnh sửa."
+            return LLMResult(text=text, a2ui=None, provider=self.name)
         return LLMResult(text="Mình có thể giúp tạo website, chỉnh sửa section hoặc đổi theme. Bạn muốn làm gì tiếp theo?", a2ui=None, provider=self.name)

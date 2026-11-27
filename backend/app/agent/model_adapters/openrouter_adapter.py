@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from .base import LLMResult, ModelAdapter, ProgressCallback
 from ..prompts.apple_designer import AppleDesignerPrompt
-from ..sanitizers import sanitize_message
+from ..sanitizers import normalize_component_class_name, sanitize_message
 from ..validators.a2ui_validator import ASTRYX_ALLOWED_COMPONENTS
 from ..validators.design_validator import assess_design_quality
 
@@ -183,6 +183,8 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         )
         if not broken:
             normalized = {**component, "component": node_type, "props": props}
+            normalize_component_class_name(normalized)
+            props = normalized["props"]
             if isinstance(raw_children, list):
                 normalized["children"] = raw_children
             if node_type in ("Heading", "Text"):
@@ -541,8 +543,15 @@ class OpenRouterAdapter(ModelAdapter):
             return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error="OPENROUTER_API_KEY missing")
 
         user_payload = self._build_user_prompt(intent, prompt, trimmed_context)
+        system_prompt = (
+            "You are a helpful conversational assistant. Reply in the user's language. "
+            'Return only a JSON object with one string field named "answer". '
+            "Never return A2UI, createSurface, updateComponents, or website layouts."
+            if intent == "chat_inquiry"
+            else A2UI_SYSTEM_PROMPT
+        )
         history: List[Dict[str, str]] = [
-            {"role": "system", "content": A2UI_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_payload},
         ]
         headers = {
@@ -668,14 +677,14 @@ class OpenRouterAdapter(ModelAdapter):
             raw = streamed_raw or streamed_reasoning or None
             if raw is None:
                 last_error = "OpenRouter returned an empty completion (likely token cap)"
-                history.append(self._corrective_turn(last_error))
+                history.append(self._corrective_turn(last_error, intent=intent))
                 continue
 
             try:
                 parsed = json.loads(_strip_code_fences(raw))
             except json.JSONDecodeError as exc:
                 last_error = f"Invalid JSON from model: {exc}"
-                history.append(self._corrective_turn(last_error, raw))
+                history.append(self._corrective_turn(last_error, raw, intent=intent))
                 continue
 
             if intent == "chat_inquiry":
@@ -692,7 +701,9 @@ class OpenRouterAdapter(ModelAdapter):
                         history.append(self._corrective_turn(
                             "createSurface has no visible content - the surface only has "
                             "empty layout containers; add real Heading/Text/Button/Card "
-                            "content in each section"))
+                            "content in each section",
+                            intent=intent,
+                        ))
                         continue
                     if intent == "generate_new":
                         quality_warnings = assess_design_quality(parsed, prompt)
@@ -704,12 +715,12 @@ class OpenRouterAdapter(ModelAdapter):
                                 best_quality_candidate = parsed
                                 best_quality_warnings = quality_warnings
                             last_error = "Design quality review: " + "; ".join(quality_warnings)
-                            history.append(self._corrective_turn(last_error, raw))
+                            history.append(self._corrective_turn(last_error, raw, intent=intent))
                             continue
                 return LLMResult(text=None, a2ui=parsed, provider=self.name)
 
             last_error = "Model output is not a valid A2UI v1.0 envelope"
-            history.append(self._corrective_turn(last_error, raw))
+            history.append(self._corrective_turn(last_error, raw, intent=intent))
 
         if best_quality_candidate is not None:
             return LLMResult(
@@ -720,14 +731,40 @@ class OpenRouterAdapter(ModelAdapter):
             )
         return LLMResult(text=None, a2ui=None, provider=self.name, ok=False, error=last_error)
 
-    def _corrective_turn(self, reason: str, offending: Optional[str] = None) -> Dict[str, str]:
-        message = (
-            "Your previous output needs correction "
-            f"({reason}). Re-output ONLY a single JSON object with \"version\":\"1.0\" and exactly "
-            "one of the keys createSurface, updateComponents, or updateDataModel. No prose, no markdown."
-        )
+    def _corrective_turn(
+        self,
+        reason: str,
+        offending: Optional[str] = None,
+        intent: Optional[str] = None,
+    ) -> Dict[str, str]:
+        if intent == "chat_inquiry":
+            message = (
+                f"Your previous conversational response needs correction ({reason}). "
+                'Return only a JSON object with one string field named "answer". '
+                "Do not include A2UI or a website layout."
+            )
+        else:
+            message = (
+                "Your previous output needs correction "
+                f"({reason}). Re-output ONLY a single JSON object with \"version\":\"1.0\" and exactly "
+                "one of the keys createSurface, updateComponents, or updateDataModel. No prose, no markdown."
+            )
+            message += (
+                "\nRepair only the listed issues while preserving all valid ids, requested content, "
+                "and unaffected sections. Follow the A2UI contract exactly: each component's "
+                "className belongs only in props.className; never emit a second top-level className. "
+                "When a component prop such as Container.maxWidth or Container.paddingX controls "
+                "the same style, remove the conflicting utility from props.className."
+            )
+            if intent == "generate_new":
+                message += (
+                    "\nUse the section ids and current properties from the JSON below as context. "
+                    "Make spacing role-specific (compact navbar/footer, more generous hero, "
+                    "moderate content sections); do not copy one spacing/max-width signature "
+                    "to every section. Do not claim or add unrelated sections."
+                )
         if offending:
-            message += f"\n\nYour previous attempt (do not repeat its structure):\n{_strip_code_fences(offending)[:1500]}"
+            message += f"\n\nCurrent A2UI output to repair:\n{_strip_code_fences(offending)[:6000]}"
         return {"role": "user", "content": message}
 
     def _build_user_prompt(self, intent: str, prompt: str, trimmed_context: Optional[Dict[str, Any]]) -> str:

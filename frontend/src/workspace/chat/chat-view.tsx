@@ -21,7 +21,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const { isFixtureMenuOpen, setIsFixtureMenuOpen } = useChatStore();
 
   return (
-    <aside className="w-[400px] flex flex-col h-full bg-white border-r border-zinc-200/80 shrink-0 select-none shadow-[2px_0_12px_rgba(0,0,0,0.02)] z-10">
+    <aside className="w-[400px] flex flex-col h-full bg-white border-r border-zinc-200/80 shrink-0 shadow-[2px_0_12px_rgba(0,0,0,0.02)] z-10">
       {/* Header - Apple frosted styling */}
       <div className="h-16 px-5 border-b border-zinc-200/80 flex items-center justify-between bg-white/90 backdrop-blur-md">
         <div className="flex items-center gap-3">

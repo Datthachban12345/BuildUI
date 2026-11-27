@@ -18,6 +18,8 @@ Handled mistakes
 8. ``"catalogId"`` missing (defaults to ``astryx-web-v1``)
 9. ``"surfaceId"`` missing (defaults to ``page-main``)
 10. ``null`` values inside ``props`` dict (stripped)
+11. Legacy top-level ``className`` moved into ``props.className`` when absent;
+    ``props.className`` wins when both are present.
 """
 from __future__ import annotations
 
@@ -78,6 +80,23 @@ def _infer_component_from_props(props: Dict[str, Any]) -> Optional[str]:
     if "text" in prop_keys:
         return "Text"
     return None
+
+
+def normalize_component_class_name(component: Dict[str, Any]) -> None:
+    """Keep A2UI className only in the component's canonical props object."""
+    legacy_class_name = component.get("className")
+    if not isinstance(legacy_class_name, str):
+        return
+    component.pop("className")
+
+    props = component.get("props")
+    if "props" in component and not isinstance(props, dict):
+        return
+    if not isinstance(props, dict):
+        props = {}
+    if "className" not in props and isinstance(legacy_class_name, str):
+        props["className"] = legacy_class_name
+    component["props"] = props
 
 
 # ----- public API -------------------------------------------------------------
@@ -160,6 +179,7 @@ def _sanitize_component_list(
             continue  # skip non-dict items (nulls, strings, etc.)
 
         node = dict(comp)
+        normalize_component_class_name(node)
         raw_props = node.get("props")
         if isinstance(raw_props, dict) and "children" in raw_props:
             if not isinstance(node.get("children"), list):

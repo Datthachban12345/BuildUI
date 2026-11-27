@@ -101,6 +101,36 @@ def assess_design_quality(message: Dict[str, Any], prompt: str) -> List[str]:
         if not any(token.startswith(("py-", "pt-", "pb-")) for token in class_name.split()):
             issues.append(f"Give top-level section '{section_id}' intentional vertical spacing.")
 
+    section_layouts: Dict[tuple, List[str]] = {}
+    section_spacing_prefixes = (
+        "p-", "px-", "py-", "pt-", "pr-", "pb-", "pl-", "m-", "mx-", "my-",
+        "mt-", "mr-", "mb-", "ml-", "gap-", "space-x-", "space-y-", "max-w-",
+    )
+    for section_id in root_children:
+        section = nodes[section_id]
+        props = section.get("props") or {}
+        class_name = props.get("className")
+        class_tokens = class_name.split() if isinstance(class_name, str) else []
+        class_layout = tuple(sorted(
+            token.split(":")[-1]
+            for token in class_tokens
+            if token.split(":")[-1].startswith(section_spacing_prefixes)
+        ))
+        signature = (
+            class_layout,
+            props.get("maxWidth"),
+            props.get("paddingX"),
+        )
+        if class_layout or props.get("maxWidth") or props.get("paddingX"):
+            section_layouts.setdefault(signature, []).append(section_id)
+
+    for section_ids in section_layouts.values():
+        if len(section_ids) >= 3:
+            issues.append(
+                "Avoid repeating the same spacing and width settings across page sections "
+                f"{section_ids}; use compact navigation/footer spacing and role-specific section rhythm."
+            )
+
     for node in page_nodes:
         if node.get("component") != "Grid":
             continue

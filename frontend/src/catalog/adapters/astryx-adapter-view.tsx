@@ -25,7 +25,8 @@ export const AstryxContainer: React.FC<AstryxComponentProps> = ({ node, children
     xl: 'max-w-7xl',
     full: 'max-w-none',
   };
-  const maxW = maxWidthMap[node.props?.maxWidth || 'xl'] || maxWidthMap.xl;
+  const maxWidth = typeof node.props?.maxWidth === 'string' ? node.props.maxWidth : '';
+  const maxW = maxWidth ? maxWidthMap[maxWidth] || maxWidthMap.xl : '';
   const paddingMap: Record<string, string> = {
     none: 'px-0',
     sm: 'px-4',

@@ -229,23 +229,23 @@ def _generate_generic_site(prompt: str) -> Dict[str, Any]:
     title = f"{display_name} - Website"
     components = [
         {"id": "root", "component": "Container", "props": {"maxWidth": "xl", "className": "bg-white"}, "children": ["navbar", "hero", "main-content", "pricing", "footer"]},
-        {"id": "navbar", "component": "Row", "props": {"justify": "between", "align": "center", "className": "px-8 py-5 border-b border-zinc-200"}, "children": ["navbar-brand", "navbar-cta"]},
+        {"id": "navbar", "component": "Row", "props": {"justify": "between", "align": "center", "className": "px-8 py-4 border-b border-zinc-200"}, "children": ["navbar-brand", "navbar-cta"]},
         {"id": "navbar-brand", "component": "Heading", "props": {"level": 3, "text": display_name}},
         {"id": "navbar-cta", "component": "Button", "props": {"label": "Liên hệ", "variant": "outline", "size": "sm"}},
-        {"id": "hero", "component": "Container", "props": {"className": "px-8 py-24 text-center max-w-4xl mx-auto space-y-6"}, "children": ["hero-title", "hero-description", "hero-cta"]},
+        {"id": "hero", "component": "Container", "props": {"maxWidth": "lg", "paddingX": "lg", "className": "py-24 text-center space-y-6"}, "children": ["hero-title", "hero-description", "hero-cta"]},
         {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": f"Khám phá {subject}"}},
         {"id": "hero-description", "component": "Text", "props": {"text": f"Trải nghiệm được thiết kế riêng cho {subject}, với chất lượng và sự tận tâm trong từng chi tiết."}},
         {"id": "hero-cta", "component": "Button", "props": {"label": "Khám phá ngay", "variant": "primary", "size": "lg"}},
-        {"id": "main-content", "component": "Container", "props": {"className": "px-8 py-20 max-w-6xl mx-auto"}, "children": ["main-title", "feature-grid"]},
+        {"id": "main-content", "component": "Container", "props": {"maxWidth": "xl", "paddingX": "lg", "className": "py-16"}, "children": ["main-title", "feature-grid"]},
         {"id": "main-title", "component": "Heading", "props": {"level": 2, "text": "Điểm nổi bật"}},
         {"id": "feature-grid", "component": "Grid", "props": {"cols": 3, "gap": "lg"}, "children": ["feature-1", "feature-2", "feature-3"]},
         {"id": "feature-1", "component": "Card", "props": {"title": f"Dành riêng cho {subject}", "description": "Giải pháp phù hợp với nhu cầu thực tế của bạn."}},
         {"id": "feature-2", "component": "Card", "props": {"title": "Chất lượng đáng tin cậy", "description": "Chú trọng trải nghiệm nhất quán trong từng chi tiết."}},
         {"id": "feature-3", "component": "Card", "props": {"title": "Đồng hành lâu dài", "description": "Đội ngũ sẵn sàng hỗ trợ bạn khi cần."}},
-        {"id": "pricing", "component": "Container", "props": {"className": "px-8 py-20 border-t border-zinc-200 max-w-5xl mx-auto text-center"}, "children": ["pricing-title", "pricing-card"]},
+        {"id": "pricing", "component": "Container", "props": {"maxWidth": "lg", "paddingX": "lg", "className": "py-20 border-t border-zinc-200 text-center"}, "children": ["pricing-title", "pricing-card"]},
         {"id": "pricing-title", "component": "Heading", "props": {"level": 2, "text": "Giải pháp phù hợp"}},
         {"id": "pricing-card", "component": "Card", "props": {"title": f"{display_name}", "description": "Liên hệ để được tư vấn lựa chọn phù hợp."}},
-        {"id": "footer", "component": "Container", "props": {"className": "px-8 py-10 border-t border-zinc-200 text-center"}, "children": ["footer-copy"]},
+        {"id": "footer", "component": "Container", "props": {"maxWidth": "xl", "paddingX": "lg", "className": "py-12 border-t border-zinc-200 text-center"}, "children": ["footer-copy"]},
         {"id": "footer-copy", "component": "Text", "props": {"text": f"© 2026 {display_name}. All rights reserved."}},
     ]
     return _message(title, components)

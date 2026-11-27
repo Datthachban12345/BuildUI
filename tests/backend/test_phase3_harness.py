@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import pytest
 
-from backend.app.agent.model_adapters.base import make_trimmed_context
+from backend.app.agent.model_adapters.base import LLMResult, make_trimmed_context
 from backend.app.agent.model_adapters.registry import get_adapter, configured_provider
 from backend.app.agent.model_adapters.openrouter_adapter import (
     OpenRouterAdapter,
@@ -27,6 +27,7 @@ from backend.app.agent.validators.a2ui_validator import (
 from backend.app.agent.validators.design_validator import assess_design_quality
 from backend.app.agent.harness.orchestrator import AgentOrchestrator
 from backend.app.agent.planners.ui_planner import UIPlanner
+from backend.app.agent.sanitizers import sanitize_message
 
 
 def test_trimmed_context_keeps_ids_not_dom():
@@ -71,6 +72,54 @@ def test_openrouter_completion_content_rejects_empty_or_malformed_response():
     assert _extract_completion_content({"choices": [{"message": {"content": " {\"ok\": true} "}}]}) == " {\"ok\": true} "
     assert _extract_completion_content({"choices": []}) is None
     assert _extract_completion_content({"choices": [{"message": {"content": None}}]}) is None
+
+
+def test_openrouter_chat_inquiry_returns_text_without_a2ui(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aread(self):
+            return b""
+
+        async def aiter_lines(self):
+            content = json.dumps({"answer": "Xin chào! Mình có thể giúp bạn."})
+            yield f'data: {json.dumps({"choices": [{"delta": {"content": content}}]})}'
+            yield "data: [DONE]"
+
+    class FakeAsyncClient:
+        requests = []
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, *args, **kwargs):
+            self.requests.append(kwargs.get("json", {}))
+            return FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setattr(
+        "backend.app.agent.model_adapters.openrouter_adapter.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+
+    result = asyncio.run(OpenRouterAdapter().handle("chat_inquiry", "Xin chào"))
+    assert result.ok
+    assert result.text == "Xin chào! Mình có thể giúp bạn."
+    assert result.a2ui is None
+    system_prompt = FakeAsyncClient.requests[0]["messages"][0]["content"]
+    assert "Never return A2UI" in system_prompt
 
 
 def test_nested_create_surface_is_flattened_to_renderable_child_ids():
@@ -352,6 +401,8 @@ def test_a2ui_validator_accepts_design_contract_props(props):
         ("Card", {"variant": "glass"}, "variant is not supported"),
         ("Image", {"fit": "stretch"}, "fit is not supported"),
         ("Container", {"paddingX": "xl"}, "paddingX is not supported"),
+        ("Container", {"maxWidth": "xl", "className": "max-w-6xl py-8"}, "maxWidth with max-w-*"),
+        ("Container", {"paddingX": "lg", "className": "px-8 py-8"}, "paddingX with px-*"),
         ("Text", {"className": "px-2.5"}, "4px-based"),
         ("Text", {"className": "mt-[13px]"}, "4px-based"),
     ],
@@ -368,6 +419,72 @@ def test_a2ui_validator_rejects_out_of_contract_design_props(component, props, e
     valid, error = A2UIValidator.validate_message(message)
     assert not valid
     assert expected_error in error
+
+
+def test_class_name_is_canonicalized_to_props_and_props_value_wins():
+    message = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "class-contract",
+            "components": [
+                {"id": "root", "component": "Container", "children": ["navbar"]},
+                {
+                    "id": "navbar",
+                    "component": "Container",
+                    "className": "px-8 py-4",
+                    "props": {"className": "px-8 py-20"},
+                },
+            ],
+        },
+    }
+
+    valid, error = A2UIValidator.validate_message(message)
+    assert not valid
+    assert "must be inside props" in error
+
+    normalized = _flatten_nested_create_surface(message)
+    navbar = next(
+        node for node in normalized["createSurface"]["components"]
+        if node["id"] == "navbar"
+    )
+    assert "className" not in navbar
+    assert navbar["props"]["className"] == "px-8 py-20"
+    assert A2UIValidator.validate_message(normalized) == (True, None)
+
+    legacy_message = {
+        "version": "1.0",
+        "updateComponents": {
+            "surfaceId": "class-contract",
+            "components": [
+                {"id": "navbar", "component": "Container", "className": "py-4"},
+            ],
+        },
+    }
+    sanitized = sanitize_message(legacy_message)
+    component = sanitized["updateComponents"]["components"][0]
+    assert component["props"]["className"] == "py-4"
+    assert "className" not in component
+
+
+def test_design_validator_flags_repeated_section_spacing():
+    components = [
+        {"id": "root", "component": "Container", "children": ["navbar", "hero", "main-content", "footer"]},
+        *[
+            {
+                "id": section_id,
+                "component": "Container",
+                "props": {"className": "px-8 py-20 max-w-6xl mx-auto"},
+            }
+            for section_id in ("navbar", "hero", "main-content", "footer")
+        ],
+    ]
+    message = {
+        "version": "1.0",
+        "createSurface": {"surfaceId": "repeat-spacing", "components": components},
+    }
+
+    issues = assess_design_quality(message, "Tạo website giới thiệu")
+    assert any("same spacing and width settings" in issue for issue in issues)
 
 
 def test_openrouter_stream_emits_surface_before_completion(monkeypatch):
@@ -553,6 +670,9 @@ def test_openrouter_retries_structurally_weak_design_without_discarding_it(monke
     correction = FakeAsyncClient.requests[1]["messages"][-1]["content"]
     assert "Design quality review" in correction
     assert "product prices" in correction
+    assert "props.className" in correction
+    assert "spacing/max-width signature" in correction
+    assert "Current A2UI output to repair" in correction
     assert result.a2ui["createSurface"]["components"][-1]["component"] == "Button"
 
 
@@ -575,10 +695,13 @@ def test_polish_fills_missing_spacing_and_typography():
             "surfaceId": "page-main",
             "catalogId": "astryx-web-v1",
             "components": [
-                {"id": "root", "component": "Container", "children": ["hero", "pricing"]},
+                {"id": "root", "component": "Container", "children": ["navbar", "hero", "main-content", "pricing", "footer"]},
+                {"id": "navbar", "component": "Row"},
                 {"id": "hero", "component": "Container", "children": ["hero-title"]},
                 {"id": "hero-title", "component": "Heading", "props": {"level": 1, "text": "X"}},
+                {"id": "main-content", "component": "Container"},
                 {"id": "pricing", "component": "Grid", "props": {"cols": 2}, "children": []},
+                {"id": "footer", "component": "Container"},
             ],
         },
     }
@@ -590,14 +713,44 @@ def test_polish_fills_missing_spacing_and_typography():
     by_id = {c["id"]: c for c in polished["createSurface"]["components"]}
     assert by_id["root"]["props"]["className"] == "bg-white"
     # Unstyled top-level sections get the Apple rhythm.
-    assert "py-20" in by_id["hero"]["props"]["className"]
+    assert "py-24" in by_id["hero"]["props"]["className"]
+    assert "py-4" in by_id["navbar"]["props"]["className"]
+    assert "py-16" in by_id["main-content"]["props"]["className"]
     assert "py-20" in by_id["pricing"]["props"]["className"]
+    assert "py-12" in by_id["footer"]["props"]["className"]
+    assert len({
+        by_id[section_id]["props"]["className"]
+        for section_id in ("navbar", "hero", "main-content", "pricing", "footer")
+    }) == 5
     # Unstyled heading gets the type scale.
     assert "text-5xl" in by_id["hero-title"]["props"]["className"]
     # Already-styled node is untouched.
     assert by_id["styled"]["props"]["className"] == "px-4 py-6"
     valid, _ = A2UIValidator.validate_message(polished)
     assert valid is True
+
+
+def test_deterministic_site_uses_container_props_and_role_specific_spacing():
+    from backend.app.agent.generators.deterministic_payloads import generate_deterministic
+
+    message = generate_deterministic("Tạo landing page studio ảnh")
+    components = {
+        node["id"]: node
+        for node in message["createSurface"]["components"]
+    }
+
+    assert components["hero"]["props"]["maxWidth"] == "lg"
+    assert components["hero"]["props"]["paddingX"] == "lg"
+    spacing = {
+        section_id: components[section_id]["props"]["className"]
+        for section_id in ("navbar", "hero", "main-content", "pricing", "footer")
+    }
+    assert len(set(spacing.values())) == len(spacing)
+    for section_id in ("hero", "main-content", "pricing", "footer"):
+        assert not any(
+            token.startswith("max-w-")
+            for token in spacing[section_id].split()
+        )
 
 
 def test_validator_rejects_unknown_child_ids():
@@ -891,6 +1044,22 @@ def test_facade_classify_intent():
     assert A2UIGenerator.classify_intent("Đổi màu theme", True) == "change_theme"
 
 
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("Xin chào", "chat_inquiry"),
+        ("Bạn có thể làm gì?", "chat_inquiry"),
+        ("Tạo website bán hàng", "generate_new"),
+        ("Thiết kế website portfolio", "generate_new"),
+        ("Đổi màu nút đăng ký", "edit_section"),
+        ("Cảm ơn bạn", "chat_inquiry"),
+    ],
+)
+def test_intent_classification_does_not_depend_on_surface(prompt, expected):
+    assert UIPlanner.classify_intent(prompt, False) == expected
+    assert UIPlanner.classify_intent(prompt, True) == expected
+
+
 async def collect_stream(prompt, surface_id, summary):
     events = []
     async for line in AgentOrchestrator.process_chat_stream(prompt, surface_id, summary):
@@ -902,4 +1071,66 @@ async def collect_stream(prompt, surface_id, summary):
             break
         events.append(json.loads(payload_raw))
     return events
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_text"),
+    [
+        ("Xin chào", "Xin chào"),
+        ("Bạn có thể làm gì?", "tạo website mới"),
+        ("Cảm ơn bạn", "Rất vui"),
+    ],
+)
+def test_deterministic_conversation_never_emits_a2ui(monkeypatch, prompt, expected_text):
+    monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    events = asyncio.run(collect_stream(prompt, None, None))
+    assert not any(event["type"] == "a2ui" for event in events)
+    text = "".join(event["payload"] for event in events if event["type"] == "text")
+    assert expected_text.lower() in text.lower()
+
+
+def test_conversation_route_discards_unexpected_adapter_a2ui(monkeypatch):
+    import backend.app.agent.harness.orchestrator as orchestrator_module
+
+    class NonCompliantAdapter:
+        name = "external-test"
+
+        async def handle(self, *args, **kwargs):
+            return LLMResult(
+                text="Xin chào!",
+                a2ui={"version": "1.0", "createSurface": {"surfaceId": "unexpected"}},
+                provider=self.name,
+            )
+
+    monkeypatch.setattr(orchestrator_module, "get_adapter", lambda: NonCompliantAdapter())
+    events = asyncio.run(collect_stream("Xin chào", None, None))
+    assert not any(event["type"] == "a2ui" for event in events)
+    assert "Xin chào!" in "".join(event["payload"] for event in events if event["type"] == "text")
+
+
+def test_generation_request_without_surface_still_creates_surface(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    events = asyncio.run(collect_stream("Tạo website bán hàng", None, None))
+    a2ui = [event["payload"] for event in events if event["type"] == "a2ui"]
+    assert a2ui
+    assert any("createSurface" in message for message in a2ui)
+
+
+def test_targeted_edit_with_surface_updates_existing_component(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    summary = {
+        "title": "Cửa hàng",
+        "component_ids": ["root", "cta-primary"],
+    }
+    events = asyncio.run(collect_stream("Đổi màu nút đăng ký", "page-main", summary))
+    a2ui = [event["payload"] for event in events if event["type"] == "a2ui"]
+    assert any("updateComponents" in message for message in a2ui)
+
+
+def test_targeted_edit_without_surface_asks_for_context(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deterministic")
+    events = asyncio.run(collect_stream("Đổi màu nút đăng ký", None, None))
+    assert not any(event["type"] == "a2ui" for event in events)
+    text = "".join(event["payload"] for event in events if event["type"] == "text")
+    assert "tạo hoặc mở" in text
 

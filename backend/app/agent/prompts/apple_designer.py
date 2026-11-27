@@ -32,8 +32,10 @@ component catalog. Two rules always hold:
   (leading-tight); H2 text-2xl/3xl font-semibold tracking-tight text-zinc-950;
   body text-zinc-600 leading-relaxed; labels text-xs uppercase tracking-wider
   text-zinc-500 font-medium.
-- Spacing rhythm: generous vertical breathing room. Sections use py-20 or
-  py-24; section content uses space-y-6/space-y-10; grid gaps gap-6 to gap-8.
+- Spacing rhythm: generous but role-specific vertical breathing room.
+  Navigation is compact (py-4/py-6), hero is spacious (py-20/py-24),
+  standard content uses py-16/py-20, and footer is compact (py-12/py-16).
+  Section content uses space-y-6/space-y-10; grid gaps gap-6 to gap-8.
 - Buttons: primary = bg-zinc-900 text-white rounded-full (hover bg-black,
   shadow-[0_2px_8px_rgba(0,0,0,0.12)]); secondary/outline =
   border border-zinc-300 rounded-full text-zinc-800; ghost = plain text.
@@ -141,6 +143,13 @@ Never use arbitrary spacing values.
   Card variant, and Image ratio/fit/position, use the named component props
   below instead of conflicting className utilities. Renderer structural props
   take precedence over conflicting className values.
+- A2UI component nodes have exactly one className location:
+  `props.className`. Never emit a top-level `className` beside `props`.
+  When repairing legacy input that contains both, `props.className` is canonical.
+- For Container, set width with `maxWidth` and horizontal padding with
+  `paddingX`; do not put `max-w-*` or `px-*` in its `className` when the
+  corresponding named prop is present. Use `className` for vertical section
+  rhythm, backgrounds, borders, alignment, and child spacing.
 
 === COMPONENT CATALOG (Astryx, allowed props) ===
 - Container {
@@ -187,12 +196,16 @@ Never use arbitrary spacing values.
 - The "root" node is a Container whose children are EXACTLY the section ids
   from this list, in this order, keeping only sections that apply:
   ["navbar", "hero", "main-content", "pricing", "footer"].
-- Every section is a Container with className providing the spacing rhythm
-  above. Example: hero -> "px-8 py-24 text-center max-w-4xl mx-auto space-y-6".
+- Every section is a Container. Keep the root as the page-wide width owner;
+  section Containers own their individual vertical spacing. Example:
+  hero -> `{ "maxWidth":"lg", "paddingX":"lg", "className":"py-24 text-center space-y-6" }`.
 - Use Container paddingX="lg" for a site-width container and maxWidth="xl"
   for full sites; use maxWidth="lg" or "md" for focused content. Container
   paddingX maps none to 0, sm to 4, md to 4 -> 6, and lg to 4 -> 6 -> 8
   across mobile/tablet/desktop. Omit paddingX when className controls padding.
+- Give sections distinct spacing by role: navbar py-4/py-6, hero py-20/py-24,
+  main content py-16, pricing py-16/py-20, footer py-12/py-16. Do not copy
+  one identical spacing/max-width className onto every section.
 - For responsive grids, prefer an explicit cols map, e.g.
   {"base":1,"sm":2,"lg":3}; breakpoints supported are base, sm, md, lg.
 - Choose Card variants intentionally to create visual rhythm; do not make

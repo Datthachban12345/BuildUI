@@ -1,10 +1,10 @@
+import re
 from typing import List
 
 THEME_KEYWORDS = (
-    "theme", "màu", "mau", "màu sắc", "mau sac", "font", "phông", "phong",
-    "giao diện sáng", "giao diện tối", "palette", "typography",
-    "đổi màu", "doi mau", "đổi font", "doi font", "bảng màu", "bang mau",
-    "trắng", "trang", "tím", "tim", "đen", "den", "xanh", "đỏ", "do", "vàng", "vang",
+    "theme", "màu chủ đạo", "mau chu dao", "bảng màu", "bang mau",
+    "palette", "typography", "toàn bộ giao diện", "toan bo giao dien",
+    "giao diện sáng", "giao diện tối", "đổi font", "doi font", "font toàn",
 )
 EDIT_KEYWORDS = (
     "đổi", "doi", "sửa", "sua", "thay", "thêm", "them", "xóa", "xoá", "xoa",
@@ -17,9 +17,19 @@ GENERATE_KEYWORDS = (
     "portfolio", "landing", "dashboard", "trang web mới", "website mới",
 )
 QUESTION_MARKERS = (
-    "?", "thế nào", "thế nào", "sao", "bao nhiêu", "làm gì", "giúp gì", "hiểu",
+    "?", "thế nào", "sao", "bao nhiêu", "làm gì", "giúp gì", "hiểu",
     "why", "how", "what", "when", "where", "can you", "explain",
+    "bạn làm được gì", "bạn giúp được gì",
 )
+GREETING_KEYWORDS = ("xin chào", "chào bạn", "chào")
+THANKS_KEYWORDS = ("cảm ơn", "cam on", "thanks", "thank you")
+THEME_SCOPE_KEYWORDS = THEME_KEYWORDS
+
+
+def _is_greeting(text: str) -> bool:
+    if any(keyword in text for keyword in GREETING_KEYWORDS):
+        return True
+    return re.search(r"\b(?:hello|hi|hey)\b", text) is not None
 
 
 class UIPlanner:
@@ -29,47 +39,42 @@ class UIPlanner:
     def classify_intent(cls, prompt: str, has_existing_surface: bool) -> str:
         text = prompt.lower().strip()
 
-        # 1. Theme change wins on an existing surface (color/font wording is specific).
-        if has_existing_surface and any(keyword in text for keyword in THEME_KEYWORDS):
+        # Intent is determined by the user's words, not whether a canvas exists.
+        # Keep the parameter for callers that still pass surface state.
+        is_question = any(marker in text for marker in QUESTION_MARKERS) or text.endswith(
+            (" không", " được không", " chứ", " à", " hả")
+        )
+        if (
+            _is_greeting(text)
+            or any(keyword in text for keyword in THANKS_KEYWORDS)
+            or any(keyword in text for keyword in ("bạn có thể làm gì", "bạn giúp được gì", "what can you do"))
+            or is_question
+        ):
+            return "chat_inquiry"
+
+        has_edit = any(keyword in text for keyword in EDIT_KEYWORDS)
+        if has_edit and any(keyword in text for keyword in THEME_SCOPE_KEYWORDS):
             return "change_theme"
 
-        # 2. Targeted section edit on an existing surface.
-        if has_existing_surface and any(keyword in text for keyword in EDIT_KEYWORDS):
+        if has_edit:
             return "edit_section"
 
-        # 3. Explicit creation request, or no surface yet.
-        is_question = any(marker in text for marker in QUESTION_MARKERS)
+        # Create requests require creation language or a clear page type; an
+        # empty canvas alone is never enough to infer that intent.
         has_create = any(keyword in text for keyword in GENERATE_KEYWORDS)
-        if has_create and not is_question:
-            return "generate_new"
-        if not has_existing_surface:
+        if has_create:
             return "generate_new"
 
-        # 4. Plain conversational inquiry.
         return "chat_inquiry"
 
     @classmethod
     def create_generation_plan(cls, prompt: str) -> List[str]:
-        text = prompt.lower()
-        steps = [
-            "Phân tích yêu cầu và phong cách thiết kế",
-            "Khởi tạo A2UI surface và cấu trúc trang",
-            "Lắp ráp thanh điều hướng (Navbar)",
-            "Xây dựng Hero và Call-to-Action",
+        return [
+            "Phân tích yêu cầu, đối tượng và phong cách",
+            "Lựa chọn cấu trúc phù hợp với nội dung được yêu cầu",
+            "Sinh bố cục và nội dung theo catalog A2UI",
+            "Kiểm tra cấu trúc và các section thực sự được tạo",
         ]
-        if any(keyword in text for keyword in ("bảng", "thống kê", "dashboard", "analytics", "data")):
-            steps.extend([
-                "Thiết lập các thẻ chỉ số tổng quan (Metrics)",
-                "Tạo DataTable tương tác có tìm kiếm/sắp xếp",
-                "Liên kết dataModel cục bộ với bảng dữ liệu",
-            ])
-        else:
-            steps.extend([
-                "Tạo khu vực dịch vụ / tính năng nổi bật",
-                "Xây dựng bảng giá và form liên hệ",
-                "Hoàn thiện footer và kiểm tra an toàn schema A2UI",
-            ])
-        return steps
 
     @classmethod
     def create_edit_plan(cls) -> List[str]:

@@ -16,7 +16,7 @@ export const InputBarView: React.FC<InputBarStoreProps> = ({ onSendMessage, isGe
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Yêu cầu Agent tạo hoặc sửa giao diện..."
+          placeholder="Nhắn tin hoặc hỏi điều bạn cần..."
           className="w-full bg-[#f5f5f7] focus:bg-white border border-zinc-200 focus:border-zinc-400 focus:ring-4 focus:ring-zinc-100 rounded-2xl px-4 py-3 pr-12 text-xs text-zinc-900 placeholder-zinc-400 outline-none resize-none transition duration-200"
         />
         <button

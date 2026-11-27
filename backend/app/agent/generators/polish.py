@@ -15,9 +15,16 @@ surface that the model already styled correctly.
 """
 from typing import Any, Dict
 
-# Top-level section containers (direct children of "root") that lack any
-# styling get the Apple vertical rhythm.
-_SECTION_SPACING = "px-8 py-20 max-w-6xl mx-auto"
+# Top-level sections use role-specific spacing. The page root owns max width,
+# while each section owns its vertical rhythm.
+_SECTION_SPACING = {
+    "navbar": "px-4 py-4",
+    "hero": "px-4 py-24",
+    "main-content": "px-4 py-16",
+    "pricing": "px-4 py-20",
+    "footer": "px-4 py-12",
+}
+_DEFAULT_SECTION_SPACING = "px-4 py-16"
 
 # Headings without className get the type-scale defaults by level.
 _HEADING_SCALE: Dict[int, str] = {
@@ -49,7 +56,11 @@ def polish_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         root["props"] = root_props = {}
     if not root_props.get("className"):
         root_props["className"] = "bg-white"
-    if not root_props.get("maxWidth"):
+    root_class_name = root_props.get("className")
+    root_has_max_width_class = isinstance(root_class_name, str) and any(
+        token.startswith("max-w-") for token in root_class_name.split()
+    )
+    if not root_props.get("maxWidth") and not root_has_max_width_class:
         root_props["maxWidth"] = "xl"
 
     section_ids = [s for s in (root.get("children") or []) if s in by_id]
@@ -71,7 +82,7 @@ def polish_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         # 1. Unstyled top-level section container -> Apple spacing rhythm.
         if node_id in section_ids and node_type in ("Container", "Row", "Grid") \
                 and not props.get("className"):
-            props["className"] = _SECTION_SPACING
+            props["className"] = _SECTION_SPACING.get(node_id, _DEFAULT_SECTION_SPACING)
 
         # 2. Unstyled headings -> type scale.
         if node_type == "Heading" and not props.get("className"):
