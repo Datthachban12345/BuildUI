@@ -86,22 +86,21 @@ pnpm run test:frontend
 pnpm test
 ```
 
-## Chạy local development
+## Chạy ứng dụng
 
-Lệnh sau khởi động cả API và frontend:
-
-```bash
-pnpm run dev
-```
-
-Hoặc chạy riêng:
+Từ thư mục root, chạy một lệnh duy nhất để khởi động cả backend FastAPI và frontend Vite:
 
 ```bash
-pnpm run dev:backend   # API: http://localhost:8000
-pnpm run dev:frontend  # Vite: http://localhost:5173
+npm run dev
 ```
 
-Chỉ khởi động server khi cần phát triển hoặc kiểm thử. Sau smoke test phải dừng process ngay; không để server chạy ngầm sau phiên làm việc. Quy tắc đầy đủ nằm trong [CLAUDE.md](CLAUDE.md) và [docs/CLAUDE.md](docs/CLAUDE.md).
+Sau khi chạy thành công:
+
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- Swagger API docs: http://localhost:8000/docs
+
+Nhấn `Ctrl+C` để dừng cả hai server. Chỉ khởi động server khi cần phát triển hoặc kiểm thử; sau smoke test phải dừng process ngay. Quy tắc đầy đủ nằm trong [CLAUDE.md](CLAUDE.md) và [docs/CLAUDE.md](docs/CLAUDE.md).
 
 ## Tài liệu
 
