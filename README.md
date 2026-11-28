@@ -1,99 +1,116 @@
-# BuildUI — AI Website Generation Agent (A2UI-First)
+# BuildUI
 
-An AI-driven website and interactive UI generation studio built on the **A2UI v1.0** (Agent-to-User Interface) protocol, featuring a **Figma-like interactive artboard canvas**, **Swarm-based streaming rebuild**, and **Data-to-UI reactive engine**.
+BuildUI là một monorepo tạo website bằng AI theo hướng **A2UI-first**. Người dùng gửi yêu cầu bằng ngôn ngữ tự nhiên, backend điều phối model và kiểm tra output A2UI, còn frontend render thành website tương tác trong workspace với preview, component selection và property inspector.
 
----
+## Tính năng chính
 
-## Architecture Overview
+- Sinh landing page, portfolio, product page và các website nhiều section từ prompt.
+- Render preview tương tác thay vì chỉ sinh ảnh mockup hoặc source code.
+- Stream UI từ FastAPI backend tới React frontend qua SSE.
+- Chọn component trên preview và chỉnh thuộc tính trực tiếp.
+- Nhập dữ liệu để hiển thị trong UI và cập nhật từng phần theo A2UI.
+- Tách model adapter, validator, runtime và component catalog để giới hạn output được phép render.
 
+## Kiến trúc
+
+```text
+React + TypeScript workspace
+  ├─ Prompt chat
+  ├─ Live preview / A2UI runtime
+  ├─ Component selection
+  └─ Property inspector
+              │ HTTPS / SSE
+              ▼
+FastAPI agent harness
+  ├─ Model adapter
+  ├─ Intent / task routing
+  ├─ Context builder và planner
+  ├─ A2UI generator
+  ├─ Validator
+  └─ Stream / persistence boundary
+              │ A2UI messages
+              ▼
+Component catalog và renderer
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    AGENT HARNESS (Host Backend)              │
-│  - FastAPI / Python Coordinator                              │
-│  - LLM Orchestrator (Intent Router, Planner, Context Builder) │
-│  - OpenRouter token stream → partial A2UI component updates  │
-│  - Protocol Serializer (A2UI v1.0 Generator & Validator)     │
-│  - Reactive SSE Streaming Endpoint (`/api/agent/stream-ui`)  │
-└──────────────┬────────────────────────────────┬──────────────┘
-               │ (Stream A2UI Messages)         │
-               ▼                                ▼
-┌──────────────────────────────┐ ┌──────────────────────────────┐
-│ CLIENT FIGMA CANVAS SANDBOX  │ │ DATA-TO-UI REACTIVITY ENGINE │
-│ (React + TS + Tailwind)      │ │                              │
-│ - Virtual Artboard (Desktop, │ │ - Arbitrary JSON / CSV input │
-│   Tablet, Mobile viewports)  │ │ - Schema type inference      │
-│ - Layers & Component Tree    │ │ - Local reactive 60fps sort, │
-│ - Property Inspector         │ │   search, filter & paging    │
-│ - A2UI State Runtime         │ │ - Zero round-trip latency    │
-└──────────────────────────────┘ └──────────────────────────────┘
-```
 
----
+Backend không gửi HTML/JavaScript tùy ý để trình duyệt thực thi. Model trả về dữ liệu theo hợp đồng A2UI; validator kiểm tra dữ liệu trước khi frontend runtime render bằng các component đã đăng ký.
 
-## Project Structure
+## Cấu trúc repository
 
-```
+```text
 buildUI/
-├── backend/                  # FastAPI Agent Harness Backend
-│   ├── app/
-│   │   ├── main.py           # FastAPI app & SSE streaming endpoints
-│   │   ├── core/config.py    # Configuration
-│   │   └── models/a2ui.py    # A2UI v1.0 Pydantic v2 schemas
-│   ├── tests/
-│   │   └── run_tests.py      # Backend unit & schema validation tests
-│   └── requirements.txt
-├── frontend/                 # React 18 + Vite + TypeScript Studio
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── CanvasHeader.tsx      # Viewports, zoom, prompt stream bar
-│   │   │   ├── CanvasArtboard.tsx    # Figma artboard & Astryx renderers
-│   │   │   ├── LayersPanel.tsx       # Component tree hierarchy
-│   │   │   ├── InspectorPanel.tsx    # Property inspector & live editing
-│   │   │   └── DataImportModal.tsx   # JSON/Table schema importer
-│   │   ├── core/
-│   │   │   └── a2ui-runtime.ts       # A2UI message reducer & SSE consumer
-│   │   ├── types/a2ui.ts             # TypeScript protocol definitions
-│   │   ├── App.tsx                   # Studio orchestrator
-│   │   └── main.tsx
-│   ├── package.json
-│   └── vite.config.ts
-├── packages/
-│   └── a2ui-protocol/        # Shared A2UI v1.0 Protocol package
-│       ├── src/index.ts
-│       └── package.json
-└── docs/
-    ├── adr/
-    │   └── ADR-001-architecture-decisions.md
-    └── specs/
-        ├── a2ui-v1.0-spec.md
-        └── astryx-catalog-spec.md
+├── backend/                 # FastAPI agent harness
+├── frontend/                # React + Vite + TypeScript studio
+├── tests/                   # Backend và integration tests
+├── docs/                    # Tài liệu kỹ thuật, kế hoạch và hướng dẫn vận hành
+│   ├── plans/
+│   ├── CLAUDE.md
+│   ├── README.md
+│   ├── ai-website-generation-agent-guide.txt
+│   └── ai-website-generation-agent-technical-guide.docx
+├── CLAUDE.md                # Rule làm việc bắt buộc cho Claude Code trong repo
+├── package.json              # Lệnh dev, build và test ở root
+└── README.md
 ```
 
----
+## Yêu cầu môi trường
 
-## Quickstart
+- Python và pip cho backend.
+- Node.js và pnpm cho frontend.
+- Biến môi trường backend: xem [backend/.env.example](backend/.env.example).
 
-### 1. Backend (FastAPI Agent Harness)
+## Cài đặt
+
+### Backend
+
 ```bash
-# Install dependencies
 pip install -r backend/requirements.txt
-
-# Run tests
-python -m backend.tests.run_tests
-
-# Start API server (port 8000)
-uvicorn backend.app.main:app --reload --port 8000
 ```
 
-### 2. Frontend (Figma-like A2UI Studio)
+### Frontend
+
 ```bash
-cd frontend
-
-# Install packages
-pnpm install
-
-# Start Vite dev server (port 5173)
-pnpm dev
+pnpm --dir frontend install
 ```
 
-Visit `http://localhost:5173` to explore the studio canvas.
+## Chạy kiểm thử và build
+
+```bash
+# Backend tests
+pnpm run test:backend
+
+# Frontend TypeScript/Vite build
+pnpm run test:frontend
+
+# Tất cả kiểm thử hiện có
+pnpm test
+```
+
+## Chạy local development
+
+Lệnh sau khởi động cả API và frontend:
+
+```bash
+pnpm run dev
+```
+
+Hoặc chạy riêng:
+
+```bash
+pnpm run dev:backend   # API: http://localhost:8000
+pnpm run dev:frontend  # Vite: http://localhost:5173
+```
+
+Chỉ khởi động server khi cần phát triển hoặc kiểm thử. Sau smoke test phải dừng process ngay; không để server chạy ngầm sau phiên làm việc. Quy tắc đầy đủ nằm trong [CLAUDE.md](CLAUDE.md) và [docs/CLAUDE.md](docs/CLAUDE.md).
+
+## Tài liệu
+
+- [Mục lục tài liệu](docs/README.md)
+- [Hướng dẫn kỹ thuật đầy đủ](docs/ai-website-generation-agent-guide.txt)
+- [Bản DOCX của hướng dẫn kỹ thuật](docs/ai-website-generation-agent-technical-guide.docx)
+- [Kế hoạch triển khai](docs/plans/implementation-plan.md)
+- [Quy tắc làm việc trong repository](CLAUDE.md)
+
+## Trạng thái kiến trúc
+
+A2UI là hợp đồng trung tâm giữa agent và giao diện. Astryx/component catalog là lớp adapter phía renderer; tên component, props và package cụ thể phải được đối chiếu với implementation thực tế trong repository, không nên suy đoán từ tài liệu khái niệm.

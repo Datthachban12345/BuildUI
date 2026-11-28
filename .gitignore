@@ -44,3 +44,7 @@ Thumbs.db
 ~$*.docx
 *.tmp
 
+# Local Claude Code instructions and working plans
+/CLAUDE.md
+/PLAN.md
+

@@ -264,26 +264,86 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
             node["children"] = refs
         components.append(node)
 
-    # Guarantee a root node and connect any otherwise orphaned top-level nodes.
-    referenced_ids = {
-        child
-        for component in components
-        for child in component.get("children", [])
+    # Repair a common free-model failure: it emits every node as a root child
+    # and leaves all ``children`` arrays empty. Rebuild the intended hierarchy
+    # from section prefixes and nested node-id prefixes instead of rendering a
+    # visually flat list.
+    component_by_id = {component["id"]: component for component in components}
+    canonical_sections = ("navbar", "hero", "main-content", "pricing", "footer")
+    section_prefixes: Dict[str, tuple] = {
+        "navbar": ("navbar-",),
+        "hero": ("hero-",),
+        "main-content": ("main-content-", "main-"),
+        "pricing": ("pricing-",),
+        "footer": ("footer-",),
     }
-    top_level_ids = [
-        node_id for node_id in order
-        if node_id != "root" and node_id not in referenced_ids
-    ]
+    section_ids = [s for s in canonical_sections if s in component_by_id]
+
+    def parent_of(node_id: str) -> Optional[str]:
+        """Nested grouping wins: a node id that extends another node id
+        (booking-form inputs under the booking card) belongs to that node,
+        using the longest match. Numeric suffixes are stripped so
+        "feature-1" still groups under a "feature" node.
+        """
+        candidates = {other for other in component_by_id
+                      if other not in ("root", node_id)}
+        for suffix_match in list(candidates):
+            base = re.sub(r"-\d+$", "", suffix_match)
+            if base != suffix_match and node_id.startswith(base + "-"):
+                candidates.add(suffix_match)
+        best: Optional[str] = None
+        for other in candidates:
+            if node_id.startswith(other + "-"):
+                if best is None or len(other) > len(best):
+                    best = other
+        if best:
+            return best
+        for section in section_ids:
+            if any(node_id.startswith(prefix) for prefix in section_prefixes[section]):
+                return section
+        return None
+
+    for node in components:
+        node_id = node["id"]
+        if node_id == "root" or node_id in section_ids:
+            continue
+        parent = parent_of(node_id)
+        if parent in component_by_id:
+            siblings = component_by_id[parent].setdefault("children", [])
+            if node_id not in siblings:
+                siblings.append(node_id)
+
+    # Drop the model's accidental empty page-main wrapper (it reuses the
+    # surface id as a container); its content was re-parented above.
+    components = [component for component in components
+                  if component["id"] != "page-main" or "page-main" in section_ids]
+    component_by_id = {component["id"]: component for component in components}
+
+    top_level_ids = [node_id for node_id in section_ids if node_id in component_by_id]
     if "root" not in nodes:
         root: Dict[str, Any] = {"id": "root", "component": "Container",
                                 "props": {"maxWidth": "xl", "className": "bg-white"}}
         if top_level_ids:
             root["children"] = top_level_ids
         components.insert(0, root)
-    elif top_level_ids:
-        root_node = next(component for component in components if component["id"] == "root")
-        root_children = root_node.setdefault("children", [])
-        root_node["children"] = list(dict.fromkeys(root_children + top_level_ids))
+    else:
+        component_by_id["root"]["children"] = top_level_ids
+
+    # Normalize props the Astryx renderers do not understand: paddingX and
+    # responsive col objects become concrete tokens; purely decorative
+    # metadata is dropped. "align" is kept - Row renders it.
+    for component in components:
+        props = component.get("props")
+        if not isinstance(props, dict):
+            continue
+        cols = props.get("cols")
+        if isinstance(cols, dict):
+            props["cols"] = cols.get("lg") or cols.get("base") or 3
+        padding = {"sm": "px-4", "md": "px-6", "lg": "px-8"}.get(props.get("paddingX"))
+        if padding:
+            props["className"] = f"{padding} {props.get('className') or ''}".strip()
+        for key in ("paddingX", "scale", "weight", "tone"):
+            props.pop(key, None)
 
     # `children` is the canonical tree edge. If a model also listed every node
     # under root, prefer the more specific nested parent and remove duplicate
