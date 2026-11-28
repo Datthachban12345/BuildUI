@@ -7,6 +7,8 @@ block to a known canvas region.
 """
 from typing import List
 
+from ..design.layout_patterns import build_design_prior
+
 # Canonical top-level section ids, in rendering order. The model MUST use
 # exactly these ids as direct children of "root" (drop ones that do not apply,
 # keep the order).
@@ -193,10 +195,14 @@ Never use arbitrary spacing values.
 
 === STRUCTURE CONTRACT (mandatory - Live Assembly depends on it) ===
 - createSurface surfaceId is "page-main", catalogId is "astryx-web-v1".
-- The "root" node is a Container whose children are EXACTLY the section ids
-  from this list, in this order, keeping only sections that apply:
-  ["navbar", "hero", "main-content", "pricing", "footer"].
-- Every section is a Container. Keep the root as the page-wide width owner;
+- The "root" node is a Container whose direct children are top-level section
+  Containers. Prefer these ids as recognizable Live Assembly anchors when they
+  fit: ["navbar", "hero", "main-content", "pricing", "footer"]. They are
+  optional, not a fixed template: you may invent meaningful section ids and
+  choose a different order or composition when the brief requires it.
+- Do not add an empty "page-main" node; that value is the surface id, not a
+  visual section.
+- Every top-level section is a Container. Keep the root as the page-wide width owner;
   section Containers own their individual vertical spacing. Example:
   hero -> `{ "maxWidth":"lg", "paddingX":"lg", "className":"py-24 text-center space-y-6" }`.
 - Use Container paddingX="lg" for a site-width container and maxWidth="xl"
@@ -276,8 +282,13 @@ class AppleDesignerPrompt:
             "direction, page hierarchy, section roles, and visual media. Do not "
             "print that analysis; use it to make the actual composition specific "
             "rather than a generic template.\n\n"
-            "Preserve the user's requested content and functionality. Use only "
-            "the Astryx catalog and its documented props. Follow the structure, "
+            f"{build_design_prior(prompt)}\n\n"
+            "The design prior is advisory, not a template: you may invent new "
+            "section ids, reorder sections, and create a composition not listed "
+            "when that better serves the brief. Keep the root hierarchy valid, "
+            "use only the Astryx catalog and documented props, and do not copy "
+            "any reference literally.\n\n"
+            "Preserve the user's requested content and functionality. Follow the "
             "responsive layout, spacing, and data-to-UI contracts. Return ONLY "
             "the createSurface JSON object.\n\n"
             f"USER BRIEF:\n{prompt}"

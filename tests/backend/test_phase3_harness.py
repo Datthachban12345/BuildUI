@@ -18,6 +18,8 @@ from backend.app.agent.model_adapters.openrouter_adapter import (
     _has_visible_content,
 )
 from backend.app.agent.prompts.apple_designer import AppleDesignerPrompt
+from backend.app.agent.design.layout_patterns import select_pattern, build_design_prior
+from backend.app.agent.design_memory import DesignMemory, DesignMemoryStore
 from backend.app.agent.generators.polish import polish_create_surface
 from backend.app.agent.validators.a2ui_validator import (
     A2UIValidator,
@@ -28,6 +30,32 @@ from backend.app.agent.validators.design_validator import assess_design_quality
 from backend.app.agent.harness.orchestrator import AgentOrchestrator
 from backend.app.agent.planners.ui_planner import UIPlanner
 from backend.app.agent.sanitizers import sanitize_message
+
+
+def test_layout_prior_is_advisory_and_unknown_brief_stays_creative():
+    pattern, score = select_pattern("website cho một bảo tàng thiên nhiên")
+    assert pattern.name == "creative"
+    assert score == 0
+    prompt = AppleDesignerPrompt.generation_user_prompt("website cho một bảo tàng thiên nhiên")
+    assert "not a template" in prompt
+    assert "invent new" in prompt
+
+
+def test_layout_prior_selects_domain_knowledge_without_fixing_sections():
+    pattern, score = select_pattern("cửa hàng bán hoa và giỏ hàng online")
+    assert pattern.name == "commerce"
+    assert score >= 2
+    prior = build_design_prior("cửa hàng bán hoa và giỏ hàng online")
+    assert "editorial hero" in prior
+    assert "NOT a fixed template" in prior
+
+
+def test_design_memory_stores_lessons_not_low_quality_surfaces():
+    store = DesignMemoryStore(limit=2)
+    store.add(DesignMemory("commerce", "editorial feature", "clear focal point", 6.9))
+    assert store.retrieve("commerce") == []
+    store.add(DesignMemory("commerce", "editorial feature", "clear focal point", 8.4))
+    assert "do not copy" in store.inspiration("commerce").lower()
 
 
 def test_trimmed_context_keeps_ids_not_dom():

@@ -10,6 +10,7 @@ from ..prompts.apple_designer import AppleDesignerPrompt
 from ..sanitizers import normalize_component_class_name, sanitize_message
 from ..validators.a2ui_validator import ASTRYX_ALLOWED_COMPONENTS
 from ..validators.design_validator import assess_design_quality
+from ..design.layout_patterns import select_pattern
 
 # UI-producing intents must return an A2UI envelope; the free model pool picks
 # an upstream model at random, so we retry with a corrective prompt when it
@@ -277,7 +278,17 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
         "pricing": ("pricing-",),
         "footer": ("footer-",),
     }
-    section_ids = [s for s in canonical_sections if s in component_by_id]
+    # Canonical anchors are preferred, but they are not the only legal page
+    # sections. Preserve novel Container sections so the model can create a
+    # composition that the library did not anticipate.
+    canonical_ids = [s for s in canonical_sections if s in component_by_id]
+    novel_ids = [component["id"] for component in components
+                 if component["id"] not in canonical_ids
+                 and component["id"] not in ("root", "page-main")
+                 and component.get("component") == "Container"]
+    section_ids = canonical_ids + [s for s in novel_ids if s not in canonical_ids]
+    for section in novel_ids:
+        section_prefixes.setdefault(section, (section + "-",))
 
     def parent_of(node_id: str) -> Optional[str]:
         """Nested grouping wins: a node id that extends another node id
@@ -312,6 +323,43 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
             siblings = component_by_id[parent].setdefault("children", [])
             if node_id not in siblings:
                 siblings.append(node_id)
+
+    # Recover common layout groups that are semantically expressed in ids but
+    # not always wired by free models. These are conservative: only add an
+    # edge when the group exists and is currently empty/under-specified.
+    group_rules = {
+        "-inner": lambda node_id: [candidate for candidate in component_by_id
+            if candidate.startswith(node_id.rsplit("-inner", 1)[0] + "-")
+            and candidate != node_id and not candidate.endswith("-inner")],
+        "-links": lambda node_id: [candidate for candidate in component_by_id
+            if candidate.startswith(node_id + "-")],
+        "-grid": lambda node_id: {
+            "booking-grid": ["booking-form-card", "booking-info-card"],
+        }.get(node_id, []),
+        "-form-card": lambda node_id: [candidate for candidate in component_by_id
+            if candidate.startswith(node_id.rsplit("-form-card", 1)[0] + "-")
+            and candidate not in (node_id, node_id.replace("-form-card", "-info-card"))
+            and component_by_id[candidate].get("component") == "Input"],
+    }
+    for node_id, node in component_by_id.items():
+        if node_id == "root":
+            continue
+        existing = list(node.get("children") or [])
+        for suffix, candidates_for in group_rules.items():
+            if node_id.endswith(suffix):
+                inferred = [child for child in candidates_for(node_id)
+                            if child in component_by_id and child not in existing]
+                if inferred:
+                    node["children"] = existing + inferred
+                break
+
+    # A two-panel booking/info composition must not collapse to a one-column
+    # grid merely because the model emitted a conservative default.
+    for node in component_by_id.values():
+        if node.get("component") == "Grid" and len(node.get("children") or []) >= 2:
+            props = node.setdefault("props", {})
+            if props.get("cols") == 1:
+                props["cols"] = {"base": 1, "md": 2}
 
     # Drop the model's accidental empty page-main wrapper (it reuses the
     # surface id as a container); its content was re-parented above.
@@ -358,6 +406,10 @@ def _normalize_create_surface(message: Dict[str, Any]) -> Dict[str, Any]:
             current_parent = parent_by_child.get(child_id)
             if current_parent is None or (
                 current_parent == "root" and parent["id"] != "root"
+            ) or (
+                current_parent != "root"
+                and parent["id"] != "root"
+                and len(parent["id"]) > len(current_parent)
             ):
                 parent_by_child[child_id] = parent["id"]
 

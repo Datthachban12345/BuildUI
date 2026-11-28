@@ -1,5 +1,12 @@
-"""Composition checks kept separate from A2UI schema validation."""
+"""Composition checks kept separate from A2UI schema validation.
+
+Checks are intent-aware via the layout prior, not tied to a fixed template:
+commerce criteria only fire when the commerce prior (or its keywords) match,
+and creative layouts with invented section ids pass the generic rules.
+"""
 from typing import Any, Dict, List
+
+from ..design.layout_patterns import select_pattern
 
 
 _DASHBOARD_TERMS = ("dashboard", "analytics", "thống kê", "bảng điều khiển")
@@ -55,9 +62,10 @@ def assess_design_quality(message: Dict[str, Any], prompt: str) -> List[str]:
     ]
     page_nodes = _descendants("root", nodes)
     prompt_lower = prompt.lower()
-    is_dashboard = any(term in prompt_lower for term in _DASHBOARD_TERMS)
+    prior, _ = select_pattern(prompt)
+    is_dashboard = prior.name == "dashboard" or any(term in prompt_lower for term in _DASHBOARD_TERMS)
     is_specialized = any(term in prompt_lower for term in _SPECIALIZED_TERMS)
-    is_commerce = any(term in prompt_lower for term in _COMMERCE_TERMS)
+    is_commerce = prior.name == "commerce" or any(term in prompt_lower for term in _COMMERCE_TERMS)
     issues: List[str] = []
 
     if not is_specialized and len(root_children) < 3:
@@ -97,8 +105,12 @@ def assess_design_quality(message: Dict[str, Any], prompt: str) -> List[str]:
         section = nodes[section_id]
         if section.get("component") != "Container":
             continue
-        class_name = str((section.get("props") or {}).get("className") or "")
-        if not any(token.startswith(("py-", "pt-", "pb-")) for token in class_name.split()):
+        props = section.get("props") or {}
+        class_name = str(props.get("className") or "")
+        has_vertical_rhythm = any(token.startswith(("py-", "pt-", "pb-")) for token in class_name.split())
+        # A section may use a named structural padding prop plus a class-based
+        # vertical rhythm; paddingX alone is horizontal and is not sufficient.
+        if not has_vertical_rhythm:
             issues.append(f"Give top-level section '{section_id}' intentional vertical spacing.")
 
     section_layouts: Dict[tuple, List[str]] = {}
